@@ -1,0 +1,607 @@
+---
+title: "Tarea 3 Microeconometría Aplicada"
+author: "Mario Medina - 156940"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+header-includes:
+  - \usepackage{placeins}
+  - \usepackage{rotating}
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    toc: TRUE
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_hooks$set(plot = function(x, options)  {
+  paste0(knitr::hook_plot_tex(x, options), "\n\\FloatBarrier\n")
+})
+```
+
+```{r librerias_lectura, include=FALSE, warning=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(knitr)
+library(bootstrap)
+library(sandwich)
+library(equatiomatic)
+library(car)
+library(stargazer)
+library(quantreg)
+library(caret)
+library(margins)
+library(nnet)
+library(mlogit)
+wd <- "C:/Users/mario/OneDrive/ITAM/1ER SEMESTRE/ECONOMETRIA I/TAREAS/TAREA 3"
+setwd(wd)
+datos <- fread("bells_cargo.csv")
+set.seed(156940)
+options(scipen=999)
+```
+
+# MPL, Probit, Logit
+
+## Ajuste de modelo
+Nos interesa un modelo para poder explicar la variable **DEFAULT** *donde 0 = No entra en default y 1 = Entra en Default*. Utilizamos la siguiente especificación para los 3 modelos (Se asume heterocedasticidad)
+
+$$
+\begin{aligned}
+DEFAULT_{i}=&\beta_{0} + \beta_{1}FEMALE_{i} + \beta_{2}OWNS.CAPITAL_{i} + \\
+&\beta_{3}CNT.CHILDREN_{i} + \beta_{4}UNEMPLOYED_{i} + \beta_{5}CREDIT.SCORE_{i}
+\end{aligned}
+$$
+
+Presentamos una breve explicación de las variables, en conjunto con sus unidades. 
+
+- **FEMALE:** Dummy que indica la identificación de género (1 = Mujer; 0 = e.o.c)
+- **OWNS.CAPITAL:** Dummy que indica si se tiene el poder de un bien de alto valor (1 = Posee Coche o bien inmueble; 0 = e.o.c)
+- **CNT.CHILDREN:** Variable discreta que indica el número de hijos 
+- **UNEMPLOYED:** Dummy que indica si el cliente tiene emplea (1 = Empleado; 0 = e.o.c)
+- **CREDIT.SCORE:** Variable continua que indica el puntaje crediticio del cliente
+
+A continuación en **Tabla 1** mostramos el valor de los coeficientes (Betas) para cada uno de los modelos, así como sus errores estándar asumiendo heterocedasticidad.
+
+```{r pregunta1-a, echo=FALSE, results='asis', warning=FALSE}
+mpl <- lm(DEFAULT ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, data = datos)
+covmpl <- vcovHC(mpl, type = "HC1")
+hcmpl <- sqrt(diag(covmpl))
+
+probit <- glm(DEFAULT ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, 
+              family = binomial(link = "probit"), 
+              data = datos)
+covprobit <- vcovHC(probit, type = "HC1")
+hcprobit <- sqrt(diag(covprobit))
+
+logit <- glm(DEFAULT ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, 
+              family = binomial(link = "logit"), 
+              data = datos)
+covlogit <- vcovHC(logit, type = "HC1")
+hclogit <- sqrt(diag(covlogit))
+
+stargazer::stargazer(mpl,probit,logit, 
+                     type = "latex",
+                     se = list(hcmpl,hcprobit,hclogit), 
+                     header = FALSE,
+                     add.lines = list(c("Modelo","MPL","Probit","Logit"),
+                                      c("Errores","Heteroc","Heteroc","Heteroc")),
+                     omit.stat = c("f","adj.rsq","ser"))
+                     #covariate.labels = 
+                     #c("$Tar.Productivity$","$ln(Tar.Productivity)$", "$SMV$", "$Unfinished$",
+                     #"$Incentive$", "$Idle$", "$Changes$", "$Changes^2$","$Workers$","$Sweing$",
+                     #"$Sweing*Workers$","$Constant$"))
+
+```
+\FloatBarrier
+
+## Interpretaciones
+Para ejemplificar nuestros resultados de los modelos usaremos el **Efecto Parcial para Persona Promedio**, nos enfocaremos en dos variables explicativas principalmente *OWNS CAPITAL* y *CNT CHILDREN*
+
+```{r pregunta1-b-datos, echo=FALSE, results='asis', warning=FALSE}
+datos_modelo <- select(datos, DEFAULT, FEMALE, OWNS_CAPITAL, CNT_CHILDREN, UNEMPLOYED, CREDIT_SCORE)
+persona_promedio <- datos_modelo %>% summarize_all(., mean) %>% select(., -DEFAULT)
+names_constante <- c("(Intercept)")
+names <- append(names_constante, colnames(persona_promedio))
+vector_persona_promedio <- as.vector(t(persona_promedio))
+vector_constante <- c(1)
+vector_persona_promedio <- append(vector_constante, vector_persona_promedio)
+vector_persona_promedio <- setNames(vector_persona_promedio, names)
+```
+
+Viendo **Tabla 1** tuvimos los siguientes coeficientes para las variables de interés. 
+
+$$OWNS.CAPITAL: OLS: −0.015/PROBIT: −0.095/LOGIT: −0.194$$
+
+$$CNT.CHILDREN: OLS:0.006/PROBIT:0.041/LOGIT:0.079$$
+**Interpretación en MPL**
+La interpretación de los coeficientes es de manera directa además los efectos de estos son lineales, por lo que no importa el punto de partida (cualidad del individuo que analices), el efecto siempre será el mismo.
+
+- OWNS.CAPITAL: Todo lo demás constante, ser dueño de un bien de valor (Coche o inmueble) está relacionado con una **disminución** de 1.5 puntos porcentuales en la probabilidad de caer en DEFAULT. 
+- CNT CHILDREN: Todo lo demás constante, tener un hijo más está relacionado con un **aumento** de 0.6 puntos porcentuales en la probabilidad de caer en DEFAULT
+
+**Interpretación en Probit** 
+Para este modelo el coeficiente nos da una idea importante respecto al efecto que tendrá en la probabilidad de caer en DEFAULT, sin embargo no es suficiente para hablar de la magnitud. El **signo** del coeficientes basta para indicar si tendrmeos un aumento o una disminución en la probabilidad debido al cambio marginal de nuestra variable. 
+
+- OWNS.CAPITAL: Todo lo demás constante, ser dueño de un bien de valor (Coche o inmueble) está relacioando con una **disminución** en la probabilidad de caer en DEFAULT
+- CNT.CHILDREN: Todo lo demás constante, tener un hijo más está relacionado con un **aumento** en la probabilidad de caer en DEFAULT. 
+
+Para dar un ejemplo de magnitud es importante especificar de qué punto partimos ya que la magnitud depende de esto. En este caso usaremos de ejemplo a la *persona promedio* es decir, el valor de cada $x$ será el promedio de toda nuestra base de datos $\bar{x}$ 
+
+- OWNS.CAPITAL: Al ser una variable dummy tenemos que analizar el cambio exacto dado por $100*\Phi(\bar{x}'\beta+\beta_{owns.capital})-\Phi(\bar{x}'\beta)=-1.460$ puntos porcentules en la probabilidad de caer en DEFAULT, todo lo demás constante y considerando los valores promedio (presentados más abajo)
+- CNT.CHILDREN: Cambio aproximado dado por $100*\phi(\bar{x}'\beta)*\beta_{cnt.children}=0.61$ puntos porcentuales en la probabilidad de caer en DEFAULT, todo lo demás constante y considerando los valores promedio 
+
+**Interpretación en Logit**
+Para este modelo los coeficientes nos dan una idea del cambio; sin embargo esta idea va en función al momio de caer en DEFAULT $\frac{P(Y=DEFAULT|X_{i})}{P(Y=NO.DEFAULT|X_{i})}$
+
+- OWNS.CAPITAL: Todo lo demás constante, ser dueño de un bien de valor (Coche o inmueble) está relacionado a una **disminución** de 19.4% en el **ratio de probabilidad** de caer en DEFAULT a no caer.
+- CNT. CHILDREN: Todo lo demás constante, tener un hijo más está relacionado con un **aumento** de 7.9% en el **ratio de probabilidad** de caer en DEFAULT a no caer. 
+
+Para dar un ejemplo de magnitud en la probabilidad per se es importante especificar el punto de partida ya que la magnitud depende de esto, al igual que en Probit usaremos a la *persona promedio*. 
+
+- OWNS.CAPITAL: Al ser una variable dummy tenemos que analizar el cambio exacto dado por $100*\frac{exp(\bar{x}'\beta+\beta_{owns.capital})}{1+exp(\bar{x}'\beta+\beta_{owns.capital})} - \frac{exp(\bar{x}'\beta)}{1+exp(\bar{x}'\beta)}=-1.475$ puntos porcentuales en la probabilidad de caer en DEFAULT, todo lo demás constante y considerando los valores promedio
+- CNT.CHILDREN: Cambio aproximado dado por $\beta_{CNT.CHILDREN}*\frac{exp(\bar{x}'\beta)}{1+exp(\bar{x}'\beta)}*(1-\frac{exp(\bar{x}'\beta)}{1+exp(\bar{x}'\beta)}) = 0.62$ puntos porcentuales en la probabilidad de caer en DEFAULT, todo lo demás constante y considerando los valores promedio. 
+
+Para obtener el efecto parcial para la persona promedio obtenemos $\bar{x}$ para cada una de nuestras variables, dado por los siguientes valores
+
+- FEMALE: `r persona_promedio[1][[1]]` que es el % de mujeres en la lista de clientes
+- OWNS_CAPITAL: `r persona_promedio[2][[1]]` que es el % de clientes que cuentan con un bien de valor
+- CNT_CHILDREN: `r persona_promedio[3][[1]]` es el promedio de hijos con los que cuentan los clientes. 
+- UNEMPLOYED: `r persona_promedio[4][[1]]` que es el % de desempleados en nuestra base de datos
+- CREDIT_SCORE: `r persona_promedio[5][[1]]` el promedio del puntaje crediticio de nuestros clientes 
+
+```{r pregunta1-b-CONTINUAS, echo=FALSE, results='asis', warning=FALSE}
+margin_mpl <- mpl$coefficients
+margin_probit <- c()
+exact_probit <- c()
+margin_logit <- c()
+exact_logit <- c()
+for (i in 1:length(probit$coefficients)) {
+  margin_effect <- dnorm(t(vector_persona_promedio)%*%probit$coefficients)*probit$coefficients[i]
+  margin_probit <- append(margin_probit, margin_effect)
+  
+  exact_effect <- pnorm((t(vector_persona_promedio)%*%probit$coefficients)+probit$coefficients[i])-pnorm((t(vector_persona_promedio)%*%probit$coefficients))
+  exact_probit <- append(exact_probit, exact_effect)
+  
+  margin_effect <- logit$coefficients[i]*((exp(t(vector_persona_promedio)%*%logit$coefficients))/(1+exp(t(vector_persona_promedio)%*%logit$coefficients)))
+  margin_logit <- append(margin_logit, margin_effect)
+  
+  exact_effect <- ((exp((t(vector_persona_promedio)%*%logit$coefficients)+logit$coefficients[i]))/(1+exp((t(vector_persona_promedio)%*%logit$coefficients)+logit$coefficients[i]))) - ((exp((t(vector_persona_promedio)%*%logit$coefficients)))/(1+exp((t(vector_persona_promedio)%*%logit$coefficients))))
+  exact_logit <- append(exact_logit, exact_effect)
+}
+margin_probit <- setNames(margin_probit, names)
+exact_probit <- setNames(exact_probit, names)
+margin_logit <- setNames(margin_logit, names)
+exact_logit <- setNames(exact_logit, names)
+```
+
+## Diferencias 
+Nos interesa saber la diferencia en probabilidad de identificarse como mujer respecto a no serlo. Usaremos el efecto para la *persona promedio*. Retomando los valores promedio para cada variable presentados en el inciso anterior. 
+
+```{r pregunta1-c-DUMMY, echo = FALSE, warning = FALSE, message = FALSE}
+vector_persona_promedio_female <- vector_persona_promedio[-2]
+probit_coeficientes_female <- probit$coefficients[-2]
+logit_coeficientes_female <- logit$coefficients[-2]
+exact_probit <- pnorm((t(vector_persona_promedio_female)%*%probit_coeficientes_female)+probit$coefficients[2])-pnorm((t(vector_persona_promedio_female)%*%probit_coeficientes_female))
+exact_logit <- ((exp((t(vector_persona_promedio_female)%*%logit_coeficientes_female)+logit$coefficients[2]))/(1+exp((t(vector_persona_promedio_female)%*%logit_coeficientes_female)+logit$coefficients[2]))) - ((exp((t(vector_persona_promedio_female)%*%logit_coeficientes_female)))/(1+exp((t(vector_persona_promedio_female)%*%logit_coeficientes_female))))
+  
+vector_persona_promedio_owns <- vector_persona_promedio[-3]
+probit_coeficientes_owns <- probit$coefficients[-3]
+logit_coeficientes_owns <- logit$coefficients[-3]
+exact_probit <- pnorm((t(vector_persona_promedio_owns)%*%probit_coeficientes_owns)+probit$coefficients[3])-pnorm((t(vector_persona_promedio_owns)%*%probit_coeficientes_owns))
+exact_logit <- ((exp((t(vector_persona_promedio_owns)%*%logit_coeficientes_owns)+logit$coefficients[3]))/(1+exp((t(vector_persona_promedio_owns)%*%logit_coeficientes_owns)+logit$coefficients[3]))) - ((exp((t(vector_persona_promedio_owns)%*%logit_coeficientes_owns)))/(1+exp((t(vector_persona_promedio_owns)%*%logit_coeficientes_owns))))
+
+probit_boot <- c()
+logit_boot <- c()
+for (i in 1:1) { # Por poder computacional decidimos no poner las 200 repeticiones que se hicieron en la prueba "oficial"
+  indices <- sample(x = 1:length(datos$DEFAULT), size = length(datos$DEFAULT), replace = TRUE)
+  df_boot <- datos[indices, ]
+  probit <- glm(DEFAULT ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, 
+              family = binomial(link = "probit"), 
+              data = df_boot)
+  logit <- glm(DEFAULT ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, 
+              family = binomial(link = "logit"), 
+              data = df_boot)
+  
+  datos_modelo <- select(df_boot, DEFAULT, FEMALE, OWNS_CAPITAL, CNT_CHILDREN, UNEMPLOYED, CREDIT_SCORE)
+  persona_promedio <- datos_modelo %>% summarize_all(., mean) %>% select(., -DEFAULT)
+  names_constante <- c("(Intercept)")
+  names <- append(names_constante, colnames(persona_promedio))
+  vector_persona_promedio <- as.vector(t(persona_promedio))
+  vector_constante <- c(1)
+  vector_persona_promedio <- append(vector_constante, vector_persona_promedio)
+  vector_persona_promedio <- setNames(vector_persona_promedio, names)
+  
+  vector_persona_promedio_female <- vector_persona_promedio[-2]
+  probit_coeficientes_female <- probit$coefficients[-2]
+  logit_coeficientes_female <- logit$coefficients[-2]
+  exact_probit <- pnorm((t(vector_persona_promedio_female)%*%probit_coeficientes_female)+probit$coefficients[2])-pnorm((t(vector_persona_promedio_female)%*%probit_coeficientes_female))
+  exact_logit <- ((exp((t(vector_persona_promedio_female)%*%logit_coeficientes_female)+logit$coefficients[2]))/(1+exp((t(vector_persona_promedio_female)%*%logit_coeficientes_female)+logit$coefficients[2]))) - ((exp((t(vector_persona_promedio_female)%*%logit_coeficientes_female)))/(1+exp((t(vector_persona_promedio_female)%*%logit_coeficientes_female))))
+  
+  probit_boot[i] <- exact_probit
+  logit_boot[i] <- exact_logit
+}
+
+media_probit <- mean(probit_boot)
+media_logit <- mean(logit_boot)
+
+sd_probit <- sd(probit_boot)
+sd_logit <- sd(logit_boot)
+
+ls_probit <- media_probit+1.96*sd_probit
+li_probit <- media_probit-1.96*sd_probit
+
+ls_logit <- media_logit+1.96*sd_logit
+li_logit <- media_logit-1.96*sd_logit
+
+```
+
+- **MPL**: $E[DEFAULT_{i}|FEMALE_{i}=1,\bar{X_{i}}] - E[DEFAULT_{i}|FEMALE_{i}=0,\bar{X_{i}}] = \beta_{FEMALE} = -0.032$ en probabilidad. Dado que es un cambio lineal en probabilidad entonces no hay problema de asumir a la persona promedio ya que el cambio se mantiene válido para todo cliente. Sabemos que es significativamente diferente de 0 gracias a la **Tabla 1** donde observamos que es significativamente diferente de 0 al menos al 1%
+- **Probit**: $\Phi(\beta_{0}+\beta_{1}+\beta_{2}\bar{Owns} + \beta_{3}\bar{Children} + \beta_{4}\bar{Unemployed} + \beta_{5}\bar{Score}) - \Phi(\beta_{0}+\beta_{2}\bar{Owns} + \beta_{3}\bar{Children} + \beta_{4}\bar{Unemployed} + \beta_{5}\bar{Score}) = -0.0323$ en probabilidad. Creamos un intervalo de confianza con Bootstrap para validar su significancia estadística al menos a un 95% de confianza, se corrobora dado que el "0" no forma parte
+- **Logit**: asumimos $\Lambda(x'\beta) = \frac{exp(x'\beta)}{1+exp(x'\beta)}$ sin considerar el coeficiente de FEMALE. Entonces el cambio exacto está dado por $\Lambda(x'\beta+\beta_{female})-\Lambda(x'\beta) = -0.0323$ en probabilidad. Creamos un intervalo de confianza con Bootstrap para validar su significancia estadística al menos a un 95% de confianza, se corrobora dado que el "0" no forma parte
+
+## Predicción 
+Buscamos predecir la **probabilidad** de que entre en Default un cliente con las siguientes características. 
+
+- FEMALE: 1
+- CNT_CHILDREN: 2
+- OWNS_CAPITAL: 1
+- UNEMPLOYEMNT: 0 
+- CREDIT_SCORE: 60 
+
+Los criterios de selección que usaremos serán dos $R^2/Pseudo-R^2$ y AIC. 
+
+- MPL: 0.08316813 (R^2: 0.0048)
+- Probit: 0.08214756, dado que la variable latente es menor a 0, la clasificación será 0 (Pseudo R^2: 0.008525747; AIC = 171082.1)
+- Logit: 0.08134167, dado que la variable latente es menor a 0, la clasificación será 0 (Pseudo R^2: 0.008508759; AIC = 171085.1)
+
+Observamos que las predicciones de los 3 modelos son bastante similares, podemos relacionarlo con que la bondad de ajuste R^2 en los 3 modelos es bastante similar además de baja. Sin embargo, si tuvieramos que seleccionar un modelo el mejor modelo sería **Probit** dado que es el de mayor Pseudo-R^2 y menor AIC. Son válidas estas comparaciones dado que los 3 modelos tienen las mismas variables explicativas. 
+
+```{r pregunta1-d-PREDICCION-CLASIF, echo = FALSE, warning= FALSE, message=FALSE}
+mpl <- lm(DEFAULT ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, data = datos)
+covmpl <- vcovHC(mpl, type = "HC1")
+hcmpl <- sqrt(diag(covmpl))
+
+probit <- glm(DEFAULT ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, 
+              family = binomial(link = "probit"), 
+              data = datos)
+covprobit <- vcovHC(probit, type = "HC1")
+hcprobit <- sqrt(diag(covprobit))
+
+logit <- glm(DEFAULT ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, 
+              family = binomial(link = "logit"), 
+              data = datos)
+covlogit <- vcovHC(logit, type = "HC1")
+hclogit <- sqrt(diag(covlogit))
+
+datos_modelo <- select(datos, DEFAULT, FEMALE, OWNS_CAPITAL, CNT_CHILDREN, UNEMPLOYED, CREDIT_SCORE)
+persona_promedio <- datos_modelo %>% summarize_all(., mean) %>% select(., -DEFAULT)
+names_constante <- c("(Intercept)")
+names <- append(names_constante, colnames(persona_promedio))
+vector_persona_promedio <- as.vector(t(persona_promedio))
+vector_constante <- c(1)
+vector_persona_promedio <- append(vector_constante, vector_persona_promedio)
+vector_persona_promedio <- setNames(vector_persona_promedio, names)
+
+prediction_mpl <- predict(mpl, 
+                       newdata = data.frame("FEMALE" = c(1), 
+                                            "OWNS_CAPITAL" = c(1),
+                                            "CNT_CHILDREN" = c(2),
+                                            "UNEMPLOYED" = c(0),
+                                            "CREDIT_SCORE" = c(60)),
+                       type = "response")
+
+prediction_probit <- predict(probit, 
+                       newdata = data.frame("FEMALE" = c(1), 
+                                            "OWNS_CAPITAL" = c(1),
+                                            "CNT_CHILDREN" = c(2),
+                                            "UNEMPLOYED" = c(0),
+                                            "CREDIT_SCORE" = c(60)),
+                       type = "response")
+
+prediction_logit <- predict(logit, 
+                       newdata = data.frame("FEMALE" = c(1), 
+                                            "OWNS_CAPITAL" = c(1),
+                                            "CNT_CHILDREN" = c(2),
+                                            "UNEMPLOYED" = c(0),
+                                            "CREDIT_SCORE" = c(60)),
+                       type = "response")
+
+pseudoR2_probit <- 1 - (probit$deviance)/(probit$null.deviance)
+pseudoR2_logit <- 1 - (logit$deviance)/(logit$null.deviance)
+
+prueba <- as.vector(t(data.frame("(Intercept)" = c(1),
+                     "FEMALE" = c(1), 
+                     "OWNS_CAPITAL" = c(1),
+                     "CNT_CHILDREN" = c(2),
+                     "UNEMPLOYED" = c(0),
+                     "CREDIT_SCORE" = c(60))))
+prueba <- setNames(prueba, names)
+latente_probit <- t(prueba)%*%probit$coefficients
+latente_logit <- t(prueba)%*%logit$coefficients
+predic_mpl <- t(prueba)%*%mpl$coefficients
+
+```
+
+## Efectos Parciales 
+Buscamos estimar el efecto parcial de estimar media desviación estándar de CREDIT_SCORE, para hacerlo sobre la persona promedio usamos los valores mencionados en el inciso 2. Gracias a la linealidad en parámetros podemos estimar este cambio de la siguiente manera. 
+
+Primero calculamos la cantidad de cambio: `r sd(datos$CREDIT_SCORE)*0.5`
+
+- En MPL será igual a $7.440061*\beta_{CREDIT.SCORE}$ = **-0.004386**
+- En Probit será igual a $\phi(\bar{x}'\beta)*7.440061*\beta_{CREDIT.SCORE}$ = **-0.004425**
+- En Logit será igual a $7.440061*\beta_{CREDIT.SCORE}*\frac{exp(\bar{x}'\beta)}{1+exp(\bar{x}'\beta)}$ = **-0.004736**
+
+Podemos observar que el cambio aproximado para los 3 modelos es de una disminución de 0.4 puntos porcentuales en la probabilidad de caer en default, dado un incremento de 7.44 puntos en tu puntaje crediticio y todo lo demás constante. Esto para la persona promedio. 
+
+```{r pregunta1-e-linealidad, echo = FALSE, message = FALSE, warning=FALSE}
+mpl_lineal <- 7.440061*mpl$coefficients[6]
+probit_lineal <- dnorm(t(vector_persona_promedio)%*%probit$coefficients)*7.440061*probit$coefficients[6]
+logit_lineal <- 7.440061*logit$coefficients[6]*((exp(t(vector_persona_promedio)%*%logit$coefficients))/(1+exp(t(vector_persona_promedio)%*%logit$coefficients)))
+```
+
+# Logit Ordenado y Multinomial 
+Debido al cambio en las reformas laborales será imposible recopilar información sobre la variable **NAME_INCOME_TYPE** en un futuro. Estamos interesados particularmente en 4 tipos de trabajos. 
+
+- Working: trabajador regular del sector privado
+- Pensioner: pensionados
+- Commercial associate: asociados comerciales
+- State servant: trabajador del sector público
+
+## Logit Multinomial 
+Planteamos un modelo Logit Multinomial como el siguiente. 
+
+$$
+\begin{aligned}
+NAME.INCOME.TYPE_{i}=&\beta_{0} + \beta_{1}FEMALE_{i} + \beta_{2}OWNS.CAPITAL_{i} + \\
+&\beta_{3}CNT.CHILDREN_{i} + \beta_{4}UNEMPLOYED_{i} + \beta_{5}CREDIT.SCORE_{i}
+\end{aligned}
+$$
+En la **Tabla 2** Colocamos los resultados de nuestra estimación, cabe resaltar que nuestro nivel base es el tipo de trabajo denominado como *Commercial associate*
+
+Los resultados respecto a la tasa de acierto son los siguientes: 
+
+- Commercial Associate: 71,616 Observaciones 0%
+- Pensioner: 55,362 observaciones 0%
+- State servant: 21,703 observaciones 0%
+- Working: 158,771 observaciones 100%
+
+```{r pregunta2-a-logit-multinomial, echo = FALSE, warning = FALSE, message = FALSE, include=FALSE}
+trabajos_interes <- c("Working","State servant","Commercial associate","Pensioner")
+datos_multinomial <- filter(datos, NAME_INCOME_TYPE %in% trabajos_interes)
+datos_multinomial$NAME_INCOME_TYPE <- factor(datos_multinomial$NAME_INCOME_TYPE)
+datos_multinomial$NAME_INCOME_TYPE <- relevel(datos_multinomial$NAME_INCOME_TYPE, ref = "Commercial associate")
+
+#table(datos_multinomial$NAME_INCOME_TYPE)
+
+multinomial_model <- multinom(NAME_INCOME_TYPE ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE,
+                              data = datos_multinomial)
+
+coeficientes <- summary(multinomial_model)$coefficients
+u_commercial <- 0 
+u_pensioner <- t(c(1,0,1,0,0,70.06261))%*%coeficientes[1,]
+u_state <- t(c(1,0,1,0,0,70.06261))%*%coeficientes[2,]
+u_working <- t(c(1,0,1,0,0,70.06261))%*%coeficientes[3,]
+
+p_commercial <- exp(u_commercial)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+p_pensioner <- exp(u_pensioner)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+p_state <- exp(u_state)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+p_working <- exp(u_working)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+
+test_multinomial <- predict(multinomial_model, type="probs", newdata=datos_multinomial)
+multinomial_ganador <- apply(test_multinomial, 1, which.max)
+test_multinomial <- as.data.frame(cbind(test_multinomial, multinomial_ganador))
+test_multinomial <- mutate(test_multinomial, 
+                           multinomial_ganador = ifelse(multinomial_ganador == 1, "Commercial associate", multinomial_ganador),
+                           multinomial_ganador = ifelse(multinomial_ganador == 2, "Pensioner", multinomial_ganador),
+                           multinomial_ganador = ifelse(multinomial_ganador == 3, "State servant", multinomial_ganador),
+                           multinomial_ganador = ifelse(multinomial_ganador == 4, "Working", multinomial_ganador))
+
+test_multinomial <- cbind(test_multinomial, datos_multinomial$NAME_INCOME_TYPE)
+test_multinomial$multinomial_ganador <- factor(test_multinomial$multinomial_ganador) # TODO LO MANDA A WORKING, NO SE PUEDE AVANZAR
+# test_multinomial$multinomial_ganador <- relevel(test_multinomial$multinomial_ganador, ref = "Commercial associate")
+# 
+# cm <- as.matrix(confusionMatrix(test_multinomial$multinomial_ganador, test_multinomial$`datos_test_t$GANADOR`))
+# n = sum(cm) # number of instances
+# nc = nrow(cm) # number of classes
+# rowsums = apply(cm, 1, sum) # number of instances per class
+# colsums = apply(cm, 2, sum) # number of predictions per class
+# diag = diag(cm)  # number of correctly classified instances per class 
+# precision = diag / colsums 
+# recall = diag / rowsums 
+# f1 = 2 * precision * recall / (precision + recall) 
+# 
+# print(" ************ Confusion Matrix ************")
+# print(cm)
+# print(" ************ Diag ************")
+# print(diag)
+# print(" ************ Precision/Recall/F1 ************")
+# print(data.frame(precision, recall, f1)) 
+# 
+# macroPrecision = mean(precision)
+# macroRecall = mean(recall)
+# f1_multinomial = mean(f1) # 0.51 TODAS 
+```
+
+```{r pregunta2-a-stargazer, echo = FALSE, warning = FALSE, message = FALSE, results='asis'}
+stargazer::stargazer(multinomial_model, 
+                     type = "latex", 
+                     header = FALSE)
+                     # add.lines = list(c("Nivel Base", "Commercial A", "N: 71,616", "Tasa: 0%"),
+                     #                  c("Observaciones","55,362","21,703","158,771"),
+                     #                  c("Tasa de acierto","0%","0%","100%")))
+                     #omit.stat = c("f","adj.rsq","ser"))
+                     #covariate.labels = 
+                     #c("$Tar.Productivity$","$ln(Tar.Productivity)$", "$SMV$", "$Unfinished$",
+                     #"$Incentive$", "$Idle$", "$Changes$", "$Changes^2$","$Workers$","$Sweing$",
+                     #"$Sweing*Workers$","$Constant$"))
+
+```
+\FloatBarrier
+
+## Logit Ordenado
+Dado que la variable **NAME_INCOME_TYPE** no tiene por si mismo un orden nuestra postura será observar la información del puntaje crediticio y ordenaremos de menor a mayor de acuerdo al promedio de esta variable. Obtuvimos los siguientes resultados. 
+
+- State servant: 69.8 puntos
+- Working: 70.1 puntos
+- Pensioner: 71.2 puntos
+- Commercial Associate: 74.7 puntos
+
+Los resultados de nuestra estimación se agregan en la **Tabla 4**. A continuación presentamos la matriz de confusión de nuestras nuevas predicciones en conjunto con su tasa de acierto. 
+
+Observamos que tienen una ligera variación para las categorías de "Worker" y "State Servant". En el modelo anterior observamos que la magnitud del coeficiente asignado al intercepto $\beta_{0,Working}$ tenía una magnitud mucho mayor respecto al resto de coeficientes. Al ajustar un modelo que omite las constantes era de esperar que pudieramos obtener resultados diferentes respecto a la tasa de acierto de cada tipo de trabajo.
+
+```{r pregunta2-b-ordenado, echo = FALSE, warning = FALSE, message = FALSE, results='asis'}
+library(MASS)
+trabajos_interes <- c("Working","State servant","Commercial associate","Pensioner")
+datos_ordenado <- filter(datos, NAME_INCOME_TYPE %in% trabajos_interes)
+
+datos_ordenado$NAME_INCOME_TYPE <- ordered(datos_ordenado$NAME_INCOME_TYPE,c("State servant","Working","Pensioner", "Commercial associate"))
+
+logit_ord <- polr(NAME_INCOME_TYPE ~ FEMALE + OWNS_CAPITAL + CNT_CHILDREN + UNEMPLOYED + CREDIT_SCORE, 
+                  data=datos_ordenado,
+                  Hess = TRUE)
+
+test_ordenado <- predict(logit_ord, type="probs")
+
+ordenado_ganador <- apply(test_ordenado, 1, which.max)
+test_ordenado <- as.data.frame(cbind(test_ordenado, ordenado_ganador))
+test_ordenado <- mutate(test_ordenado, 
+                           ordenado_ganador = ifelse(ordenado_ganador == 1, "State servant", ordenado_ganador),
+                           ordenado_ganador = ifelse(ordenado_ganador == 2, "Working", ordenado_ganador),
+                           ordenado_ganador = ifelse(ordenado_ganador == 3, "Pensioner", ordenado_ganador),
+                           ordenado_ganador = ifelse(ordenado_ganador == 4, "Commercial associate", ordenado_ganador))
+
+test_ordenado <- cbind(test_ordenado, datos_ordenado$NAME_INCOME_TYPE)
+test_ordenado$ordenado_ganador <- ordered(test_ordenado$ordenado_ganador,c("State servant","Working","Pensioner", "Commercial associate")) 
+
+# 
+cm <- as.matrix(confusionMatrix(test_ordenado$ordenado_ganador, datos_ordenado$`NAME_INCOME_TYPE`))
+n = sum(cm) # number of instances
+nc = nrow(cm) # number of classes
+rowsums = apply(cm, 1, sum) # number of instances per class
+colsums = apply(cm, 2, sum) # number of predictions per class
+diag = diag(cm)  # number of correctly classified instances per class 
+precision = diag / colsums 
+recall = diag / rowsums 
+f1 = 2 * precision * recall / (precision + recall) 
+tasa <- c(1/21703, 158764/158771, 0, 0)
+cm <- rbind(cm, tasa)
+# 
+# print(" ************ Confusion Matrix ************")
+kable(cm)
+# print(" ************ Diag ************")
+#print(diag)
+# print(" ************ Precision/Recall/F1 ************")
+#print(data.frame(precision, recall, f1)) 
+# 
+#macroPrecision = mean(precision)
+# macroRecall = mean(recall)
+# f1_multinomial = mean(f1) # 0.51 TODAS 
+```
+
+```{r pregunta2-b-stargazer, echo = FALSE, warning = FALSE, message = FALSE, results='asis'}
+stargazer::stargazer(multinomial_model,logit_ord, 
+                     type = "latex", 
+                     float.env = "sidewaystable",
+                     header = FALSE)
+                     # add.lines = list(c("Nivel Base", "Commercial A", "N: 71,616", "Tasa: 0%"),
+                     #                  c("Observaciones","55,362","21,703","158,771"),
+                     #                  c("Tasa de acierto","0%","0%","100%")))
+                     #omit.stat = c("f","adj.rsq","ser"))
+                     #covariate.labels = 
+                     #c("$Tar.Productivity$","$ln(Tar.Productivity)$", "$SMV$", "$Unfinished$",
+                     #"$Incentive$", "$Idle$", "$Changes$", "$Changes^2$","$Workers$","$Sweing$",
+                     #"$Sweing*Workers$","$Constant$"))
+
+```
+\FloatBarrier
+
+## Interpretación para Credit Score
+Al estar hablando de modelos con la función logística los coeficientes nos dan una idea respecto a los **ratios de probabilidad** 
+
+**Logit Multinomial**
+
+- Pensioner: $\beta_{CREDIT.SCORE,Pensioner}=-0.017$ por lo que todo lo demás constante un aumento de 1 punto en el puntaje crediticio de la persona está relacionado con una disminución de 1.7% en el ratio de probabilidad de que sea un "Pensionado" a que sea un "Commercial associate"
+- State Servant: $\beta_{CREDIT.SCORE, STATE.SERVANT} = -0.021$ por lo que todo lo demás constante un aumento de 1 punto en el puntaje crediticio de la persona está relacioando con una disminución de 2.1% en el ratio de probabilidad de que sea un "Servidor del estado" a que sea un "Commercial associate"
+- Working: $\beta_{CREDIT.SCORE, WORKING} = -0.020$ por lo que todo lo demás constante un aumento de 1 punto en el puntaje crediticio de la persona está relacioando con una disminución de 2.0% en el ratio de probabilidad de que sea un "Trabajador sector privado" a que sea un "Commercial associate"
+
+**Logit Ordenado**
+Tenemos el siguiente conjunto de categorías ordenado de menor a mayor de acuerdo al promedio del credit.score 
+
+$$J = \{State.servant, Working, Pensioner, Commercial.Associate\}$$ 
+
+Los coeficientes en Logit ordenado, al igual que en Logit normal hacen referencia a un ratio de probabilidades; sin embargo, al tener varias categorias la referencia al ratio es de cualquier par de probabilidades complementarias, es decir, $\frac{\partial ln(\frac{Pr(Y>j)}{Pr(Y<j)})}{\partial X_{i}}=\beta_{i}$ donde no importa donde hagas el corte "j" 
+
+- Credit_Score: $\beta_{Credit.Score}=0.015$ Por lo que todo lo demás constante un aumento de 1 punto en el puntaje crediticio de la persona está relacionado a un aumento de 1.5% en el ratio de probabilidad de ser mayor a cualquiera de las categorías que no serlo. 
+
+Las interpretaciones hacen sentido de acuerdo a como definimos nuestra variable dependiente en el *Logit Ordenado*. Ya que Commercial Associate es el que en promedio tiene mayor puntaje crediticio, y en el Multinomial esa fue nuestra categoría base, por lo que los coeficientes salen negativos. 
+
+## Estimación de Probabilidad
+Buscamos estimar la probabilidad de pertenece a la categoría de "State Servant" dadas las siguientes características
+
+- Female: 0
+- Owns_capital: 1
+- CNT_Children: 3
+- Unemployed: 0
+- Credit_Score: 70
+
+- **Logit Multinomial**: La probabilidad está dada por la siguiente expresión $P(Y_{i}=State.Servant|X_{i})=\frac{exp(x'\beta_{State.Servant})}{exp(x'\beta_{State.Servant})+exp(x'\beta_{Commercial})+exp(x'\beta_{Pensioner})+exp(x'\beta_{Working})}=0.0735$
+
+- **Logit Ordenado**: Dado que *State Servant* es nuestra variable "0" por que 
+
+$$J = \{State.servant, Working, Pensioner, Commercial.Associate\}$$
+
+la probabilidad está dada por la siguiente expresión $\Phi(\alpha_{1}-x'\beta) = 0.03841515$ donde $\alpha_{1}=-1.532663$
+
+
+```{r pregunta2-d-predicciones, echo = FALSE, message = FALSE, warning = FALSE}
+coeficientes <- summary(multinomial_model)$coefficients
+u_commercial <- 0 
+u_pensioner <- t(c(1,0,1,3,1,70))%*%coeficientes[1,]
+u_state <- t(c(1,0,1,3,1,70))%*%coeficientes[2,]
+u_working <- t(c(1,0,1,3,1,70))%*%coeficientes[3,]
+
+p_commercial <- exp(u_commercial)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+p_pensioner <- exp(u_pensioner)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+p_state <- exp(u_state)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+p_working <- exp(u_working)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+
+logit_ordenado_xb <- t(c(0,1,3,70))%*%logit_ord$coefficients
+p_logit_ord_state <- pnorm(logit_ord$zeta[1]-logit_ordenado_xb)
+```
+
+## Efecto Parcial Promedio y Elasticidad
+Utilizando Logit Multinomial queremos calcular el efecto parcial promedio de aumentar en 1 el número de hijos (Manteniendo el ejemplo del inciso anterior, estamos interesados en la probabilidad de que sea *State Servant*. Calcularemos el efecto parcial promedio utilizando el cálculo exacto $\frac{1}{307507}\sum(\frac{exp(x'\beta_{state}+\beta_{CNT.CHILDREN,state})}{\sum_{l=1}^{4} exp(x'_{i,l}\beta_{l})} - \frac{exp(x'\beta_{state})}{\sum_{l=1}^{4} exp(x'_{i,l}\beta_{l})}) = 0.0198$ lo que quiere decir que tener un hijo más aumenta mi probabilidad de estar en la categoría de "State Servant" en 1.986 puntos porcentuales. 
+
+No puedes calcular una elasticidad de este efecto, ya que es necesario conocer un **punto de partida para dimensionar la magnitud** del impacto. En este caso al calcular el promedio de todos los clientes no conocemos un punto de partida. 
+
+```{r pregunta2-e-elasiticidad-EPP, echo = FALSE, message = FALSE, warning = FALSE}
+df_aux <- dplyr::select(datos_multinomial, FEMALE, OWNS_CAPITAL, CNT_CHILDREN, UNEMPLOYED, CREDIT_SCORE)
+
+probas_state <- c()
+for (i in 1:length(df_aux$FEMALE)) {
+  constante <- 1
+  vector_x <- as.vector(t(df_aux[i]))
+  vector_x <- append(constante,vector_x)
+  
+  u_commercial_new <- 0 
+  u_pensioner_new <- t(vector_x)%*%coeficientes[1,]+coeficientes[1,4]
+  u_state_new <- t(vector_x)%*%coeficientes[2,]+coeficientes[2,4]
+  u_working_new <- t(vector_x)%*%coeficientes[3,]+coeficientes[3,4]
+
+  u_commercial <- 0 
+  u_pensioner <- t(vector_x)%*%coeficientes[1,]
+  u_state <- t(vector_x)%*%coeficientes[2,]
+  u_working <- t(vector_x)%*%coeficientes[3,]
+  
+  p_state_new <- exp(u_state_new)/(exp(u_commercial_new)+exp(u_pensioner_new)+exp(u_state_new)+exp(u_working_new))
+  
+  p_state <- exp(u_state)/(exp(u_commercial)+exp(u_pensioner)+exp(u_state)+exp(u_working))
+  
+  probas_state[i] <- p_state_new - p_state
+}
+EPP <- mean(probas_state)*100
+```
