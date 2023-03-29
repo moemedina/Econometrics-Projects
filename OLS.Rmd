@@ -1,0 +1,790 @@
+---
+title: "Tarea 2 Microeconometría Aplicada"
+author: "Mario Medina - 156940"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+header-includes:
+  - \usepackage{placeins}
+output: 
+  pdf_document:
+    toc: TRUE
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_hooks$set(plot = function(x, options)  {
+  paste0(knitr::hook_plot_tex(x, options), "\n\\FloatBarrier\n")
+})
+```
+
+```{r librerias_lectura, include=FALSE, warning=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(knitr)
+library(bootstrap)
+library(sandwich)
+library(equatiomatic)
+library(car)
+library(stargazer)
+library(quantreg)
+library(caret)
+wd <- "C:/Users/mario/OneDrive/ITAM/1ER SEMESTRE/ECONOMETRIA I/TAREAS/TAREA 2"
+setwd(wd)
+insurance <- fread("Insurance.csv")
+paris <- fread("Paris.csv")
+ap <- fread("AP.csv")
+set.seed(156940)
+```
+
+# Seguros PNG (Regresiones 101)
+
+## Pregunta 1. (Mejor estimación)
+Eliminamos el 5to modelo, aunque su $R^2=1$ el modelo es meramente informativo de la relación que hay entre las variables, no ayudan a estimar futuros valores. Definimos que el mejor modelo para estimar el valor de la prima es el 4, ya que cuenta con el total de observaciones (verificando previamente que ninguna de las columnas utiizadas independientemente del modelo cuenta con valores faltante) por lo que es preferible al 3, ya que este último cuenta con $\beta$ sesgadas al hacer una eliminación de datos cuando no es necesario. 
+```{r pregunta-1, echo = FALSE}
+  insurance_estimados <- insurance %>% 
+  mutate(y1 = 1126.80-(45.29*Urban),
+         y2 = 473.25+(466.65*Urban)+(1.32*Total.Claim.Amount),
+         y3 = 343.47+(362.41*Urban)+(1.14*Total.Claim.Amount)+(0.002*Income)+(42.43*Past.Accidents)+(0.004*Customer.Lifetime.Value),
+         y4 = 298.17+(402.70*Urban)+(28.91*Female)+(1.25*Total.Claim.Amount)-(0.74*Number.of.Policies)+(16.48*asinh(Income))+(44.13*Past.Accidents),
+         y5 = -1.79 + log(Customer.Lifetime.Value) - log(Number.of.Policies),
+         error1 = Yearly.Premium - y1,
+         error2 = Yearly.Premium - y2,
+         error3 = Yearly.Premium - y3,
+         error4 = Yearly.Premium - y4,
+         Yearly.Premium.Log = log(Yearly.Premium),
+         error5 = Yearly.Premium.Log - y5,) %>%
+  select(., Yearly.Premium, Yearly.Premium.Log, y1,y2,y3,y4,y5,error1,error2,error3,error4,error5)
+```
+
+## Pregunta 2. (Efecto causal)
+El efecto causal de una variable independiente (X) sobre nuestra variable dependiente (Y) se entiende como el cambio que origina X sobre Y, todo lo demás constante. El número de accidentes en el pasado aparece en 2 regresiones (3) y (4), la importancia de esto recae en que en ambas regresiones se utilizan diferentes variables regresoras y con un número diferente de observaciones sin que esto afecte el valor estimado de la $\beta$ asignado a la variable **Past.Accidents** y tampoco modifica su nivel de significancia. 
+
+Contemplando estos resultados podemos decir que en promedio tener un número mayor de un accidentes en el pasado está relacionado a un aumento en el valor de la prima de tu seguro. Siendo más precisos, por cada accidente adicional, tu prima aumentará en promedio 44 unidades de prima, todo lo demás constante.  
+```{r pregunta-2, echo = FALSE}
+
+```
+
+
+## Pregunta 3. (Sesgo: Urban)
+La naturaleza del cambio se origina por un sesgo de variables omitidas, es decir, existen otras variables (en este caso observables) que están relacionados con *Urban* y *Yearly.Premium*. Al no estar presentes en la regresión, la variable Urban absorbe ese efecto que generarían al estar presentes. Nos apoyamos de la siguientes regresiónes para ejemplificar. 
+
+$$reg1: Yearly.Premium_{i} = \alpha_{0}+\alpha_{1}Urban_{i}$$
+
+$$reg2: Yearly.Premium_{i} = \beta_{0}+\beta_{1}Urban_{i}+\beta_{2}Total.Claim.Amount_{i}$$
+
+$$reg.aux: Total.Claim.Amount_{i} = \gamma_{0}+\gamma_{1}Urban_{i}$$
+```{r pregunta-3, echo = FALSE, results = 'asis', warning=FALSE}
+reg1 <- lm(Yearly.Premium~Urban, data = insurance)
+cov1 <- vcovHC(reg1, type = "HC1")
+hc1 <- sqrt(diag(cov1))
+reg2 <- lm(Yearly.Premium~Urban+Total.Claim.Amount, data = insurance)
+cov2 <- vcovHC(reg2, type = "HC1")
+hc2 <- sqrt(diag(cov2))
+regaux <- lm(Total.Claim.Amount~Urban, data = insurance)
+covaux <- vcovHC(regaux, type = "HC1")
+hcaux <- sqrt(diag(covaux))
+stargazer::stargazer(reg1,reg2,regaux, 
+                     type = "latex",
+                     se = list(hc1,hc2,hcaux), 
+                     header = FALSE,
+                     add.lines = list(c("Errores","Heteroc","Heteroc","Heteroc")),
+                     omit.stat = c("f","rsq","adj.rsq","ser"))
+```
+\FloatBarrier
+
+El sesgo está definido de la siguiente manera:
+$$\alpha_{1}-\beta_{1} = \beta_{2}*\gamma_{1}::-50.845-443.443=1.229*-402.241= \text{~}-494.3$$
+
+## Pregunta 4. Regresión (5)
+No existe un error en los cálculos. La regresión está mal planteada, es correcto plantear una regresión cuando quieres encontrar información causal de los regresores sobre la variable dependiente, es decir, el efecto no es claro. Para la regresión 5, *Custome.Life.Time* se obtiene directamente de una fórmula matemática. 
+$$CLV_{i} = Yearly.Premium_{i}*Number.Polices_{i}*ARP$$
+al aplicar logaritmos: 
+$$ln(CLV_{i})=ln(Yearly.Premium_{i}*Number.Polices_{i}*ARP_{i})$$
+$$\implies ln(Yearly.Premium_{i})=ln(CLV_{i})-ln(Number.Polices_{i})-ln(ARP)$$
+como ARP es constante para todos, es el valor que aparece como $\beta_{0}=-1.79$. Al plantear una regresión así, el valor buscado es **"exacto"** por lo que no hay errores asociados en los coeficientes y el $R^2 = 1$, ya que calcula perfectamente el valor de y . ¿Pero qué pasa si queremos predecir el valor estimado para una persona que no había contratado previamente seguros con PNG? CLV y #Polices = 0, no tendrá sentido ni interpretación. 
+
+## Pregunta 5. Cálculo errores asociados
+No hay error, el valor de los coeficientes no depende del tipo de errores que utilices. El valor de los coeficientes depende únicamente del supuesto de linealidad
+
+$$\beta_{1} = \frac{Cov(X,Y)}{Var(X^2)} // \beta_{0} = \overline{Y}-\beta_{1}\overline{X}$$
+La importancia de utilizar heterocedasticidad u homocedasticidad radica en el cálculo de los errores estándar para cada uno de ellos, lo cual afectará de manera directa en la inferencia estadística que puedas llegar a realizar como el cálculo de significancia, intervalos de confianza y Pruebas de hipótesis. Tu inferencia puede llegar a no ser válida y se concluyan cosas erroneas. 
+
+## Pregunta 6. Extra (Logaritmo vs. Seno Hiperbólico Inverso)
+Graficamos las funciones $ln(x)$ y $asinh(x)$, creando una secuencia de 0 a 99981 (máximo valor en Income). Podemos observar que el comportamiento de la función es prácticamente el mismo. La principal diferencia es que tenemos valores de **Income = 0**, entendiendo que pueden existir asegurados que no perciban un salario (e.g. Estudiantes, Personas dedicadas al hogar) por lo que no es un error tener esos registros. Sin embargo, sabemos que ln(0) está indefinido, por lo que causará problemas, por lo que *asinh(x)* es una buena alternativa ya que el 0 lo deja como 0 y logramos un comportamiento similar a lo que se busca con el ln(x). 
+
+```{r pregunta-6, echo = FALSE, warning = FALSE, fig.cap = "ln(x) vs. asinh(x)", fig.show="hold", out.width="40%", message = FALSE, fig.align='center'}
+x <- seq(0, 99981, 1)
+data_preg6 <- data.frame(
+  datox = x,
+  ln = log(x),
+  asinh = asinh(x)
+)
+ggplot(data_preg6, aes(x=x, y=ln)) +
+  geom_point(color = "#29293d") + 
+  #geom_smooth(method=lm, se=FALSE, fullrange=TRUE)+
+  theme_classic()
+
+ggplot(data_preg6, aes(x=x, y=asinh)) +
+  geom_point(color = "#29293d") +
+  theme_classic()
+```
+\FloatBarrier
+
+# Angrist&Pischke Goods
+
+## Pregunta 1. Estimación de regresiones
+Presentamos los resultados en la Tabla 2. 
+```{r pregunta1-sec2, echo=FALSE, results='asis', warning=FALSE}
+# Errores heterocedásticos, *10%; **5%; ***1%
+ap_semana <- filter(ap, !(Day %in% c("Saturday","Sunday")))
+ap_fin <- filter(ap, Day %in% c("Saturday","Sunday"))
+ap <- mutate(ap, 
+             Tar_Productivity.ln = log(Tar_Productivity),
+             Changes2 = Changes^2,
+             Sweing.Workers = Sweing*Workers)
+
+r1 <- lm(Productivity ~ Tar_Productivity+SMV+Unfinished+Incentive+Changes+Workers, data = ap_semana)
+cov1 <- vcovHC(r1, type = "HC1")
+hc1 <- sqrt(diag(cov1))
+
+r2 <- lm(Productivity ~ Tar_Productivity+SMV+Unfinished+Incentive+Changes+Workers, data = ap_fin)
+cov2 <- vcovHC(r2, type = "HC1")
+hc2 <- sqrt(diag(cov2))
+
+r3 <- lm(Productivity ~ log(Tar_Productivity)+SMV+Changes+Workers+Sweing+Sweing*Workers, data = ap)
+cov3 <- vcovHC(r3, type = "HC1")
+hc3 <- sqrt(diag(cov3))
+
+r4 <- lm(log(Productivity)~log(Tar_Productivity)+SMV+Changes+I(Changes^2)+Workers+Sweing+Sweing*Workers, data = ap)
+cov4 <- vcovHC(r4, type = "HC1")
+hc4 <- sqrt(diag(cov4))
+
+r5 <- lm(Overtime~log(Tar_Productivity)+SMV+Idle+Changes+Workers+Sweing, data = ap)
+cov5 <- vcovHC(r5, type = "HC1")
+hc5 <- sqrt(diag(cov5))
+
+stargazer::stargazer(r1,r2,r3,r4,r5, 
+                     type = "latex",
+                     se = list(hc1,hc2,hc3,hc4,hc5), 
+                     header = FALSE,
+                     add.lines = list(c("Muestra","WEEKEND=0","WEEKEND=1","Completa","Completa","Completa"),
+                                      c("Errores","Heteroc","Heteroc","Heteroc","Heteroc","Heteroc")),
+                     omit.stat = c("f","adj.rsq","ser"),
+                     covariate.labels = 
+                      c("$Tar.Productivity$","$ln(Tar.Productivity)$", "$SMV$", "$Unfinished$",
+                      "$Incentive$", "$Idle$", "$Changes$", "$Changes^2$","$Workers$","$Sweing$",
+                      "$Sweing*Workers$","$Constant$"))
+```
+\FloatBarrier
+
+## Pregunta 2. Interpretación de coeficientes
+- **Tar_Productivity (1)**: Todo lo demás constante, un aumento de .01 en la productividad objetivo en los días entre semana está relacionado con un aumento en promedio de `r coefficients(r1)[2][[1]]/100` en la productividad
+
+- **Incentive (1)**: Todo lo demás constante, que el equipo tenga incentivo económico durante los días entre semana está relacionado con un aumento en promedio de `r coefficients(r1)[5][[1]]` en la productividad respecto a los equipos que no lo tienen 
+- **$\beta_{0}$ (2)**: `r coefficients(r2)[1][[1]]` es el promedio de productividad en un día entre semana cuando la productividad objetivo es 0, no hay tiempo asignado para ninguna tarea, el equipo completó el trabajo diario, no se tiene un incentivo económico en el día, no hubo cambios en el estilo de una prenda y no hay trabajadores presentes de ningún equipo en específico. Al no tener presente la variable *Dummy: Sweing*, y asumiendo que únicamente contamos con la información de estos dos equipos (Costureros y Terminados) es equivalente a decir que no es un "día hábil" en el trabajo, por lo que el $\beta_{0}$ carecería de significado. No la omitimos ya que forzaríamos a que nuestra línea de regresión partiera del origen
+- **Sweing (3)**: Todo lo demás constante, el equipo de costura tiene en promedio una productividad más alta de `r coefficients(r3)[6][[1]]` respecto al equipo de terminados
+- **SMV (3)**: Todo lo demás constante, el tener un minuto adicional para realizar la tarea reduce la productividad en promedio en `r coefficients(r3)[3][[1]]`
+- **ln(Tag.Productivity) (4)**: Todo lo demás constante, el aumento de 1% en la productividad objetivo está relacionado a un incremento en promedio de `r coefficients(r4)[2][[1]]`% en la productividad 
+- **Changes (4)**: Todo lo demás constante, el **primer** cambio en el estilo de una prenda en particular está relacionado con una disminución en promedio de  `r 100*coefficients(r4)[4][[1]]`% en el "rendimiento" de productividad
+- **$Changes^2$ (4)**: Su valor es de `r 100*coefficients(r4)[5][[1]]`% lo que indica que la disminución en productividad por cada cambio en el estilo es a tasas crecientes, es decir, cada cambio en el estilo de una prenda generará una caída en la producción cada vez mayor.
+- **$Sweing*Workers$ (4)**: Todo lo demás constante, el aumento de un trabajador en un "determinado equipo" está relacionado a una disminución de `r 100*coefficients(r4)[8][[1]]`% en productividad para el equipo de costura que para el equipo de terminados en la productividad del día. 
+- **$ln(Tar.Productivity)$ (5)**: Todo lo demás constante, el aumento de 1% en la productividad objetivo del día está relacionado con una disminución de `r coefficients(r5)[2][[1]]/100` en la probabilidad de hacer trabajo extra en el día
+- **Sweing (5)**: Todo lo demás constante, el equipo de costura está relacionado con un aumento en promedio de `r coefficients(r5)[7][[1]]` en la probabilidad de hacer trabajo extra en el día, respecto a pertenecer al equipo de terminados. 
+
+## Pregunta 3. Errores de Medición
+
+### a) Intuición por error de medición
+Estamos hablando de una situación donde puede existir **Error de Medición** en una de nuestras variables. Es decir, estamos hablando de un error descrito de la siguiente forma 
+$$w_{i} = Tar.Productivity_{real} - \tilde{Tar.Productivity}_{posible}$$
+
+Nuestro $\tilde{\beta}_{posible}$ asignado a nuestra variable dependiente está descrito de la siguiente manera
+$$\tilde{\beta}_{posible} = \beta_{real}(\frac{Var(x_{i})+Cov(w_{i},x_{i})}{Var(x_{i}+w_{i})}) + \frac{Cov(w_{i},u_{i})}{Var(x_{i}+w_{i})}$$
+
+Sin embargo, sabemos que si el error de medición no es sistemático podemos reducir esta fórmula asumiendo que $Cov(w_{i},u_{i})=0$ y aún más $Cov(x_{i},w_{i})=0$ por lo que nuestro $\tilde{\beta}_{posible}$ será... 
+$$\tilde{\beta}_{posible} = \beta_{real}(\frac{Var(x_{i})}{Var(x_{i})+Var(w_{i})}) \implies |\tilde{\beta}_{posible}| < |\beta_{real}|$$
+
+Ahora bien, sabemos que la estimación de $\beta_{0}$ está dado por $\tilde{\beta}_{0} = \overline{Y}-\tilde{\beta}_{1}\overline{X}$ por lo que si se afecta $\beta_{1}$ también se verá afectado. 
+
+En este ejemplo **el error es sistemático** ya que afecta de igual modo en todas las observaciones, al tener una fuente de datos incorrecta. No podemos afirmar que nuestra fórmula reducida sea correcta. Por lo que el efecto final sobre $\beta_{real}$ no es tan claro.  
+
+En resumen, esperamos que **$\beta_{1}$** sea mayor y que **$\beta_{0}$** caiga, es lo más "común".
+
+### b) Evidencia del sesgo de atenuación
+En la tabla 3 ponemos nuestros valores estimados para las $\beta$, podemos ver que el efecto es contrario al esperado. El $\beta_{real}$ es menor, por ende, el $\beta_{0}$ es mayor. Con esto entendemos que el valor de $Cov(w_{i},u_{i})$ tiene una magnitud significativa, además sabemos que los valores de "Varianza" serán pequeños por las unidades de nuestras variables.
+
+El sesgo es causado por un error sistemático, podemos nombrarlo como **Sesgo de selección**
+```{r pregunta3-sec2, echo = FALSE, results = 'asis', warning = FALSE}
+set.seed(156940)
+
+ap <- ap %>% mutate(
+  simulacion_error =  0.1*rnorm(1197,0,1),
+  Tar_Productivity.New = Tar_Productivity+simulacion_error
+)
+rconerror <- lm(Productivity ~ Tar_Productivity, data = ap)
+rsinerror <- lm(Productivity ~ Tar_Productivity.New, data= ap)
+factor <- (var(ap$Tar_Productivity)+var(ap$simulacion_error))/var(ap$Tar_Productivity)
+stargazer::stargazer(rconerror,rsinerror, 
+                     type = "latex",
+                     header = FALSE,
+                     omit.stat = c("f","adj.rsq","ser"))
+```
+\FloatBarrier
+
+## Pregunta 4. Variables Omitidas
+
+### a) Regresion Auxiliar 
+Creamos una Tabla 4 que trae la estimación de la regresión de la columna (5), previamente presentada, y añadiendo la regresión auxiliar propuesta, definida por 
+
+```{r pregunta-4-a-secc2, echo = FALSE, results='asis'}
+r5 <- lm(Overtime~log(Tar_Productivity)+SMV+Idle+Changes+Workers+Sweing, data = ap)
+cov5 <- vcovHC(r5, type = "HC1")
+hc5 <- sqrt(diag(cov5))
+
+r5aux <- lm(Incentive_Amount ~ log(Tar_Productivity)+SMV+Idle+Changes+Workers+Sweing, data = ap)
+cov5aux <- vcovHC(r5aux, type = "HC1")
+hc5aux <- sqrt(diag(cov5aux))
+extract_eq(r5aux, intercept = "beta", wrap = TRUE, terms_per_line = 3)
+
+stargazer::stargazer(r5,r5aux, 
+                     type = "latex",
+                     se = list(hc5,hc5aux), 
+                     header = FALSE,
+                     add.lines = list(c("Muestra","Completa","Completa"),
+                                      c("Errores","Heteroc","Heteroc")),
+                     omit.stat = c("f","adj.rsq","ser"))
+```
+\FloatBarrier
+
+Es importante agregar todas las variables, ya que el sesgo por variables omitidas se define de la siguiente manera: 
+$$sesgo=\alpha_{i} - \beta_{i} = \beta_{7}\gamma_{i}$$
+Por lo que el sesgo puede venir directamente de la relación que tengan las actuales variables dependientes de la regresión, pero ahora tomando como variable dependiente a *Incentive_Amount*. Definimos como $\alpha_{i}$ a todos los coeficientes de nuestra regresión actual (columna 5); $\beta_{i}$ a los coeficientes que estarían asociados a una nueva regresión añadiendo la variable *Incentive_Amount* y $\gamma_{i}$ a los coeficientes de nuestra regresión auxiliar.
+
+### b) Sesgo en Workers
+Como definimos previamente, el sesgo en Workers lo podemos definir como 
+
+$$sesgo=\alpha_{i} - \beta_{i} = \beta_{7}\gamma_{i}$$
+Sabemos que $\gamma_{workers} >0$ con una significancia del 5%; sin embargo, para determinar el sesgo final debemos de entender cómo se comporta $\beta_{Incentive.Amount}$. La intuición diría que a mayor incentivo económico de lograr la productividad objetivo reducirá la probabilidad de realizar horas extras, ya que los trabajadores buscarían terminar sus labores en el tiempo establecido. $\implies \beta_{incentive.amount}<0 \implies sesgo_{workers}<0$. Al tener una $\alpha_{workers}<0$ entonces este sesgo es "positivo" entendiendo el comportamiento de la siguiente manera $\beta_{new.workers}=\alpha_{workers}-\beta_{Incentive.Amount}*\gamma_{workers}$ lo que ocasionará que el nuevo coeficiente (de acuerdo a los signos) sea de menor magnitud en valor absoluto, es decir, nuestro $\alpha$, está inflado
+```{r pregunta4-b-sec2, echo = FALSE, results = 'asis', warning = FALSE}
+r5 <- lm(Overtime~log(Tar_Productivity)+SMV+Idle+Changes+Workers+Sweing, data = ap)
+cov5 <- vcovHC(r5, type = "HC1")
+hc5 <- sqrt(diag(cov5))
+
+r5mod <- lm(Overtime~log(Tar_Productivity)+SMV+Idle+Changes+Workers+Sweing+Incentive_Amount, data = ap)
+cov5mod <- vcovHC(r5mod, type = "HC1")
+hc5mod <- sqrt(diag(cov5mod))
+
+r5aux <- lm(Incentive_Amount ~ log(Tar_Productivity)+SMV+Idle+Changes+Workers+Sweing, data = ap)
+cov5aux <- vcovHC(r5aux, type = "HC1")
+hc5aux <- sqrt(diag(cov5aux))
+
+
+# stargazer::stargazer(r5,r5mod,r5aux,
+#                      type = "text",
+#                      se = list(hc5,hc5mod,hc5aux),
+#                      header = FALSE,
+#                      add.lines = list(c("Muestra","Completa","Completa","Completa"),
+#                                       c("Errores","Heteroc","Heteroc","Heteroc")),
+#                      omit.stat = c("f","adj.rsq","ser"))
+```
+
+### c) Cálculo del Coeficiente
+No podemos calcular exactamente el coeficiente nuevo asociado a "Workers" contando únicamente con las regresion presentadas en la tabla 4. Necesitamos el valor exacto del coeficiente de *Incentive_Amount* respecto a Overtime, es decir, calcular la regresión añadiendo la nueva variable. 
+
+### d) Variables nuevas que implican sesgo
+Empezamos explicando las condiciones que necesitan nuestras nuevas variables para generar un sesgo positivo/negativo en nuestras estimaciones. 
+
+- **Relación con "X"**: nuestra nueva variable control debe de tener una relación estadísticamente significativa respecto a la variable dependiente de la cuál estás pensando que existe un sesgo asociado. 
+- **Relación con "Y"**: así como debe de estar relacionado con la variable "X", debe de estar relacionado a la variable respuesta que buscamos estimar en un inicio. 
+
+Una variable que implique sesgo positivo quiere decir que al agregarlo en la regresión original ocasionará que el coeficiente de la variable "X" con el que lo estamos relacionando disminuya. Proponemos una Dummy **Día con fenómeno natural (1=si hubo temblor, lluvia fuerte, etc)**, para que exista el sesgo debe de tener una relación con *Overtime*, proponemos que si hay un fenómeno natural, la gente se irá del trabajo por su seguridad ($\beta_{fen.nat}<0$) y proponemos que ocasiona este sesgo positivo en *Idle*, ya que si se detuvo la producción podría estar relacionado a la ocurrencia de un fenómeno natural ($\gamma_{Idle}>0$). El comportamiento final será $\beta_{new.Idle}=\alpha_{Idle}-\beta_{fen.nat}*\gamma_{Idle}$ lo que ocasionará que el nuevo coeficiente (de acuerdo a los signos) sea de menor magnitud en valor absoluto
+
+Una variable que implique sesgo negativo quiere decir que al agregarlo en la regresión original ocasionará que el coeficiente de la variable "X" con el que lo estamos relacionando aumente. Proponemos **Horas de comida**, para que exista el sesgo debe de tener una relación con *Overtime*, proponemos que a mayor hora de comida, la gente se queda a trabajar horas extras porque tienden a moverse distancias más largas por lo que regresan tarde y tienen que "reponer" ($\beta_{Hrs.Comida}>0$) y proponemos que ocasiona este sesgo negativo en *SMV*, ya que a mayor minutos asignados para la tarea tenderá a verse reflejado en menor tiempo que se tiene para la comida, por la premura de las entregas ($\gamma_{smv}<0$). Por lo tanto $\beta_{new.SMV}=\alpha_{SMV}-\beta_{fen.nat}*\gamma_{Idle}$ lo que ocasionará que el nuevo coeficiente (de acuerdo a signos) sea de mayor magnitud en valor absoluto. 
+
+## Pregunta 5. Pruebas de hipótesis
+
+### a) Costura incrementa 0.05 unidades de productividad
+Queremos utilizar el modelo (3), es el siguiente.
+
+$$
+\begin{aligned}
+\operatorname{Productivity} &= \alpha + \beta_{1}(\operatorname{\log(Tar\_Productivity)}) + \beta_{2}(\operatorname{SMV})\ + \\
+&\quad \beta_{3}(\operatorname{Changes}) + \beta_{4}(\operatorname{Workers}) + \beta_{5}(\operatorname{Sweing})\ + \\
+&\quad \beta_{6}(\operatorname{Workers} \times \operatorname{Sweing}) + \epsilon
+\end{aligned}
+$$
+
+Podemos observar que, todo lo demas constante, pertenecer al equipo de costura afecta en los coeficientes $\beta_{5}$ y $\beta_{6}$. Por lo que definimos $\Delta$ como el cambio en productividad que ocasiona pertenecer al equipo de costura. 
+
+$$\begin{aligned}
+&\Delta = E[Productivity|Sweing=1]-E[Productivity|Sweing=0] > 0.05
+\\ \implies &\Delta= \beta_{5}+\beta_{6} > 0.05
+\end{aligned}$$
+
+Planteamos la siguiente prueba de hipótesis para comprobar este hecho. 
+$$\begin{aligned} &H_{0}: \beta_{5}+\beta_{6} = 0.05\\
+&H_{1}: \beta_{5}+\beta_{6} > 0.05
+\end{aligned}$$
+
+Definimos a nuestro estadístico t:
+$$t = \frac{`r coefficients(r3)[6][[1]]+coefficients(r3)[7][[1]]`-0.05}
+{`r sqrt(cov3[6,6]+cov3[7,7]+2*cov3[6,7])`}=0.2488
+$$
+
+Cuyo $p.value = 0.4017$ para la prueba de cola derecha $P(T>c)$ lo cual **No nos permite rechazar**+ $H_{0}$ ni al 10%, es decir, no hay evidencia estadística de que ser del equipo de costura esté relacionado con un aumento en la productividad de 0.05 unidades.
+
+### b) Equipo de Terminados no es relevante para la predicción
+Queremos utilizar el modelo (4) que es el siguiente. 
+
+$$
+\begin{aligned}
+\operatorname{log(Productivity)} &= \beta_{0} + \beta_{1}(\operatorname{\log(Tar\_Productivity)}) + \beta_{2}(\operatorname{SMV})\ + \\
+&\quad \beta_{3}(\operatorname{Changes}) + \beta_{4}(\operatorname{Changes^2}) + \beta_{5}(\operatorname{Workers})\ + \\
+&\quad \beta_{6}(\operatorname{Sweing}) + \beta_{7}(\operatorname{Workers} \times \operatorname{Sweing}) + \epsilon
+\end{aligned}
+$$
+Podemos observar que, todo lo demas constante, pertenecer al equipo de terminados o no pertenecer afecta en los coeficientes $\beta_{6}$ y $\beta_{7}$. Por lo que definimos $\Delta$ como el cambio en productividad que ocasiona el darle importancia a diferenciar entre equipos. 
+
+$$\begin{aligned}
+&\Delta = E[Productivity|Modelo_{aumentado}]-E[Productivity|Modelo_{reducido}] = 0
+\\ \implies &\Delta= \beta_{6} = \beta_{7} = 0
+\end{aligned}$$
+
+Donde $Modelo_{aumentado}$ es considerar los terminos de $\beta_{6} \text{ y } \beta_{7} \ne0$. Proponemos la siguiente hipótesis bidimensional para comprobar esto.
+
+$$\begin{aligned} H_{0}: &\beta_{6}=0\\
+&\beta_{7} = 0\\
+H_{1}: &e.o.c
+\end{aligned}$$
+
+Nuestro estadístico F es: 13.95 que equivale a un $p.value < .01$ por lo que podemos rechazar $H_{0}$ a favor de $H_{1}$ con un nivel de significancia hasta del 1%, es decir, **rechazamos que NO es relevante diferenciar si pertenece al equipo de terminados**. 
+```{r pregunta5b-secc2, echo = FALSE}
+mat_b <- c(0,0,0,0,0,0,1,0,
+           0,0,0,0,0,0,0,1)
+L_b <- matrix(mat_b,nrow=2,ncol = 8, byrow = T)
+
+#Prueba de hipotesis multidimensional
+phb <- linearHypothesis(r4,L_b,white.adjust="hc1")
+```
+
+### c) Dif & Dif: Incentivo en días entre semana vs. fines de semana
+Para estimar este efecto utilizando como base la regresión (1) y (2) el primer paso es tomar como observaciones el total de tu muestra. Esto para poder tener información de todos los días de la semana. 
+
+Para saber si el efecto de incentivos es similar/diferente en fin de semana al que se establece entre semana proponemos un término de interacción. $Incentivo*Fin.de.semana$. Donde $Fin.de.semana$ será una variable dummy donde su valor será igual a 1 si el registro se llevó a cabo los días sábado o domingo. Analizamos nuestra nueva especificación en la tabla 5
+
+```{r pregunta5c-secc2, echo = FALSE, results='asis', warning=FALSE}
+ap <- mutate(ap, 
+             fin.de.semana = ifelse(Day %in% c("Saturday","Sunday"),1,0))
+r5c <- lm(Productivity ~ Tar_Productivity+SMV+Unfinished+Incentive+Changes+Workers+fin.de.semana+Incentive*fin.de.semana, data = ap)
+cov5c <- vcovHC(r5c, type = "HC1")
+hc5c <- sqrt(diag(cov5c))
+stargazer::stargazer(r5c, 
+                     type = "latex",
+                     se = list(hc5c), 
+                     header = FALSE,
+                     add.lines = list(c("Muestra","Completa"),
+                                      c("Errores","Heteroc")),
+                     omit.stat = c("f","adj.rsq","ser"),
+                     covariate.labels = 
+                      c("$Tar.Productivity$", "$SMV$", "$Unfinished$",
+                      "$Incentive$", "$Changes$","$Workers$","$Fin.de.semana$",
+                      "$Incentive*Fin.de.Semana$","$Constant$"))
+```
+\FloatBarrier
+
+Para comprobar el término Dif&Dif (Interacción) planteamos la siguiente prueba de hipótesis
+$$\begin{aligned} H_{0}: &\beta_{8}=0\\
+H_{1}: &\beta_{8}\ne0
+\end{aligned}$$
+
+y nuestro estadístico t será: 
+
+$$t = \frac{`r coefficients(r5c)[9][[1]]`}
+{`r sqrt(cov5c[9,9])`}=0.01248$$
+
+Por lo que el $valor.p = 0.495$ en consecuencia el coeficiente asignado a la variable de interacción no es significativo ni al 10%, por lo que **NO podemos rechazar $H_{0}$**, es decir, no hay evidencia significativa que los incentivos tengan un impacto diferente dependiendo de si se establecen los fines de semana a los que se establecen entre semana. 
+
+# Emilio C. 
+
+## Pregunta 1. Diferencia entre estimaciones
+
+### a) Especificación y Estimación 
+La especificación de acuerdo a las variables de interés para Emilio, es la siguiente 
+
+```{r pregunta1a-secc, echo = FALSE}
+rc1 <- lm(VALUE~CRIM+SENA+NOXCON+ROOMS+AGE+DIS+POPINDEX+log(TAX)+PTRATIO, data = paris)
+#extract_eq(rc1, intercept = "beta",wrap = TRUE, terms_per_line = 3, coef_digits = 3)
+valores<- data.frame(CRIM=3/100000, SENA=1, NOXCON=0.3, ROOMS=6, AGE=10,
+                     DIS=350, POPINDEX=0.6, TAX=330, PTRATIO=20)
+#predict(rc1, valores, interval = "prediction", level = 0.90)
+```
+
+$$\begin{aligned}
+value = +&4936.493 &-&17.543crim &+&343.498sena\\
+&(867.414) &&(3.609) &&(96.383)\\
++&2318.026noxcon &+&626.87rooms &-&4.935age\\
+&(411.964) &&(38.796) &&(1.392)\\
+-&1.28dis &+&535.961popindex &-&433.589ln(tax)\\
+&(0.198) &&(147.406) &&(129.304)\\
+-&114.585ptratio\\
+&(13.773)
+\end{aligned}$$
+
+Las preferencias de emilio son: 
+
+- **CRIM:**3 unidades per capita i.e. 3/100K para que represente tasa de crimen por 100K habitantes
+- **SENA**: con vista al río i.e. 1
+- **NOXCON**: menos de 0.3 partes por diez millones
+- **ROOMS**: 6 cuartos en promedio
+- **AGE**: 10% de viviendas ocupadas construidas antes de 1940 i.e. 10
+- **DIS**: 350m en promedio a los 5 metros más cercos
+- **POPINDEX**: índice de popularidad de 60 i.e. 0.6
+- **TAX**: 330 euros semestrales
+- **PTRATIO**: 20 alumnos por maestro
+
+El valor estimado exacto para Emilio es de `r predict(rc1, valores, interval = "confidence", level = 0.90)[1]` euros mensuales de renta, a continuación presentamos un intervalo de confianza al 90%. 
+
+$$(`r predict(rc1, valores, interval = "confidence", level = 0.90)[2]`,`r predict(rc1, valores, interval = "confidence", level = 0.90)[3]`)$$
+
+### b) Cambio de preferencias
+
+```{r pregunta1b-secc, echo = FALSE}
+#extract_eq(rc1, intercept = "beta",wrap = TRUE, terms_per_line = 3, coef_digits = 3)
+valores2<- data.frame(CRIM=4/100000, SENA=0, NOXCON=0.3, ROOMS=6, AGE=20,
+                     DIS=200, POPINDEX=0.5, TAX=300, PTRATIO=22)
+#predict(rc1, valores, interval = "prediction", level = 0.90)
+#predict(rc1, valores2, interval = "prediction", level = 0.90)
+```
+Sus cambios en preferencias están dados por: 
+
+- **CRIM:** pasa a 4 unidades per capita i.e. 4/100K
+- **SENA**: sin vista al río i.e. 0
+- **AGE**: pasa a 20% de viviendas ocupadas construidas antes de 1940 i.e. 20
+- **DIS**: pasa 200m en promedio a los 5 metros más cercos
+- **POPINDEX**: pasa a un índice de popularidad de 50 i.e. 0.5
+- **TAX**: pasa a 300 euros semestrales
+- **PTRATIO**: pasa a 22 alumnos por maestro
+
+Lo que lleva que su nuevo valor estimado sea de `r predict(rc1, valores2, interval = "confidence", level = 0.90)[1]` euros mensuales de renta y el nuevo intervalo de confianza a un nivel del 90% sea: 
+
+$$(`r predict(rc1, valores2, interval = "confidence", level = 0.90)[2]`,`r predict(rc1, valores2, interval = "confidence", level = 0.90)[3]`)$$
+
+Por lo que el cambio porcentual estimado es de: 
+
+- **Valor estimado**: `r round((predict(rc1, valores2, interval = "confidence", level = 0.90)[1]/predict(rc1, valores, interval = "confidence", level = 0.90)[1]-1)*100,2)`% 
+- **Límite inferior**: `r round((predict(rc1, valores2, interval = "confidence", level = 0.90)[2]/predict(rc1, valores, interval = "confidence", level = 0.90)[2]-1)*100,2)`%
+- **Límite superior**: `r round((predict(rc1, valores2, interval = "confidence", level = 0.90)[3]/predict(rc1, valores, interval = "confidence", level = 0.90)[3]-1)*100,2)`%
+
+### c) Variable Dependiente log(valor)
+
+```{r pregunta1c-secc, echo = FALSE}
+rc2 <- lm(log(VALUE)~CRIM+SENA+NOXCON+ROOMS+AGE+DIS+POPINDEX+log(TAX)+PTRATIO, data = paris)
+#predict(rc2, valores, interval = "prediction", level = 0.90)
+#predict(rc2, valores2, interval = "prediction", level = 0.90)
+```
+Los cambios porcentuales tomando de referencia la regresión con variable dependiente logarítimica es la siguiente.
+
+- **Valor estimado (log)**: `r round((predict(rc2, valores2, interval = "confidence", level = 0.90)[1]/predict(rc2, valores, interval = "confidence", level = 0.90)[1]-1)*100,2)`% 
+- **Límite inferior (log)**: `r round((predict(rc2, valores2, interval = "confidence", level = 0.90)[2]/predict(rc2, valores, interval = "confidence", level = 0.90)[2]-1)*100,2)`%
+- **Límite superior (log)**: `r round((predict(rc2, valores2, interval = "confidence", level = 0.90)[3]/predict(rc2, valores, interval = "confidence", level = 0.90)[3]-1)*100,2)`%
+
+La disminución es aproximadamente de 10 puntos porcentuales, esto se debe a que aplicar logaritmo reduce la variabilidad del valor de rentas promedio. 
+
+## 2. Regresiones Cuantílicas
+
+### a) Regresión simple Renta~PTRATIO
+
+Ajustamos un modelo asumiendo homocedasticidad, sin embargo, podemos observar en la figura 2. (residuales vs. fitted) que los errores no parecen tener una distribución normal con media cero, ya que para algunos valores de *PTRATIO* su promedio es diferente de cero. Por lo que modificaremos la especificación y calcularemos utilizando **errores robustos**
+
+```{r pregunta2a, echo = FALSE, fig.align = 'center', fig.cap = "Gráfico de dispersión y Residuales asumiendo homocedasticidad", message = FALSE, fig.dim=c(5,3)}
+# ggplot(paris, aes(x=PTRATIO, y=VALUE))+
+#   geom_point()
+rc2a <- lm(VALUE~PTRATIO, data = paris)
+# ggplot(paris, aes(x=PTRATIO, y=VALUE))+
+#    geom_point() +
+#   labs(x = "Alumnos x Maestro",
+#        y = "Renta mensual (EUR)",
+#        title = "Renta vs. PTRATIO") +
+#   theme_classic()
+
+ggplot(rc2a, aes(y=rc2a$residuals, x=rc2a$fitted.values))+
+  geom_point() + geom_smooth(color = "red", se = FALSE) + geom_hline(yintercept=0, linetype="dashed", color = "blue", size = 1.5) + 
+  labs(x = "Valores Ajustados",
+       y = "Residuales",
+       title = "Residuales vs. Valores Ajustados",
+       subtitle = "Homocedasticidad") + 
+  theme_classic()
+```
+\FloatBarrier
+
+Nuestro modelo está descrito por la 1er columna de la tabla 6. El intervalo de confianza al 90% está dado por (Recordando que estamos utilizando errores robustos)
+
+- **Valor estimado**: `r 6234.463-215.718*15`
+- **Límite inferior**: `r (6234.463-215.718*15)-1.64*83.85`
+- **Límite superior**: `r (6234.463-215.718*15)+1.64*83.85`
+
+```{r pregunta2a-tabla, echo = FALSE, message = FALSE, results = 'asis', warning=FALSE}
+# ggplot(paris, aes(x=PTRATIO, y=VALUE))+
+#   geom_point()
+rc2a <- lm(VALUE~PTRATIO, data = paris)
+cov2a <- vcovHC(rc2a, type = "HC1")
+hc2a <- sqrt(diag(cov2a))
+valores3 <- data.frame(PTRATIO=15)
+# predict(rc2a, valores3)
+#predict(rc2a, valores3, interval = "confidence", level = 0.90)
+# 6234.463-215.718*15
+# (6234.463-215.718*15)-1.64*83.85
+```
+\FloatBarrier
+
+### b) Regresión Cuantílica (10, 90)
+Añadimos a la Tabla 6 nuestras dos regresioens cuantílicas correspondientes a los cuantiles 10 y 90 del precio de los departamentos condicionado al valor de PTRATIO
+
+```{r pregunta2b-secc, echo = FALSE, results = 'asis', warning=FALSE}
+qr10 <- rq(VALUE ~ PTRATIO, tau = 0.1, data = paris)
+qr90 <- rq(VALUE ~ PTRATIO, tau = 0.9, data = paris)
+#predict(qr90, valores3, interval = "confidence", level = .9)
+#predict(qr10, valores3, interval = "confidence", level = .9)
+
+```
+
+El valor estimado de la regresión cuantílica del cuantil 10 es **`r predict(qr10, valores3)`** y del cuantil 90 es **`r predict(qr90, valores3)`**. La regresión cuantílica se enfoca únicamente en el valor de las rentas de la población en el cuantil *q* que indiques, es decir, al hablar del cuantil 10 estaremos observando únicamente las rentas del 10% de mi población dado que el PTRATIO es = 15. 
+
+$$
+Intervalo.de.rentas: (`r predict(qr10, valores3)`,`r predict(qr90, valores3)`)
+$$
+
+```{r pregunta2b-stargazer, echo = FALSE, results = 'asis', warning=FALSE}
+stargazer::stargazer(rc2a,qr10,qr90,
+          type = "latex",
+          se = list(hc2a, NULL, NULL),
+          header = FALSE,
+          add.lines = list(c("Muestra","Completa","Completa","Completa"),
+                           c("Regresión","Lineal","Cuantil 10","Cuantil 90"),
+                           c("Errores","Heteroc","Default","Default")),
+          omit.stat = c("f","adj.rsq","ser"))
+```
+\FloatBarrier
+
+### c) Comparación de intervalos
+No son comparables. El intervalo de OLS habla sobre el **promedio** que la gente suele pagar (viendo el total de tu población), al momento de ver las regresiones cuantílicas hablamos únicamente de cierto **subconjunto** al hacer un intervalo utilizando ambas predicciones lo que estamos mostrando es un intervalo del coste de renta que paga ~80% de la población, es decir, mostramos valores "extremos" y la información es que estaremos dentro de ese rango.  
+
+### d) Comparación gráfica de modelos 
+```{r pregunta2d-graficas, echo = FALSE, fig.align = 'center', fig.cap = "Gráfico de dispersión con regresiones", message = FALSE, fig.dim=c(7,4)}
+colors <- c("OLS" = "red", "Cuantil-10" = "green", "Cuantil-90" = "purple")
+
+ggplot(paris, aes(x=PTRATIO, y=VALUE))+
+  geom_point() + 
+  geom_smooth(method = lm, color = "red", se = FALSE) + 
+  geom_quantile(quantiles = 0.10, color = "green") +
+  geom_quantile(quantiles = 0.90, color = "purple") +
+  geom_vline(xintercept = 15, linetype="dotted", 
+                color = "blue", size=1.5) +
+  labs(x = "Alumnos x Maestro",
+       y = "Renta mensual (EUR)",
+       title = "OLS vs. Cuantílicas", 
+       color = "Legend") +
+  geom_label(
+    label="OLS", 
+    x=12.5,
+    y=3500,
+    label.padding = unit(0.55, "lines"), # Rectangle size around label
+    label.size = 0.35,
+    color = "black",
+    fill="red"
+  ) + 
+    geom_label(
+    label="Q-10", 
+    x=12.5,
+    y=2200,
+    label.padding = unit(0.55, "lines"), # Rectangle size around label
+    label.size = 0.15,
+    color = "black",
+    fill="green"
+  ) + 
+    geom_label(
+    label="Q-90", 
+    x=12.5,
+    y=5500,
+    label.padding = unit(0.55, "lines"), # Rectangle size around label
+    label.size = 0.15,
+    color = "black",
+    fill="purple"
+  ) + 
+  theme_classic()
+```
+\FloatBarrier
+
+### e) Desigualdad
+Una métrica común es $\frac{Renta_{90}}{Renta_{10}}=`r predict(qr90, valores3)/predict(qr10, valores3)`$. Utilizaremos bootstrap para realizar varias simulaciones de esta métrica y poder calcular un intervalo de confianza al 95%. Posteriormente realizaremos este mismo ejercicio pero con una simulación utilizando únicamente el subconjunto de datos que cumplan la restricción de $PTRATIO :  [14,16]$
+
+```{r pregunta2e-secc, echo = FALSE, warning=FALSE, fig.show='hold', fig.dim=c(5,3)}
+ratio_boot <- c()
+for (i in 1:1000) {
+  indices <- sample(x = 1:length(paris$PTRATIO), size = length(paris$PTRATIO), replace = TRUE)
+  df_boot <- paris[indices, ]
+  rcuantil10_aux <- rq(VALUE ~ PTRATIO, tau = 0.1, data = df_boot)
+  rcuantil90_aux <- rq(VALUE ~ PTRATIO, tau = 0.9, data = df_boot)
+  cuantil10 <- predict(rcuantil10_aux, valores3)
+  cuantil90 <- predict(rcuantil90_aux, valores3)
+  ratio_boot[i] <- cuantil90/cuantil10
+}
+media_ratio <- mean(ratio_boot)
+
+var_ratio <- var(ratio_boot)
+sd_ratio <- sd(ratio_boot)
+
+ls_ratio <- media_ratio+1.96*sd_ratio
+li_ratio <- media_ratio-1.96*sd_ratio
+
+ls_ratio <- media_ratio+2.529639 *sd_ratio
+li_ratio <- media_ratio-2.529639 *sd_ratio
+
+ratio_boot2 <- c()
+paris2 <- filter(paris, PTRATIO>=14&PTRATIO<=16)
+for (i in 1:1000) {
+  indices <- sample(x = 1:length(paris2$PTRATIO), size = length(paris2$PTRATIO), replace = TRUE)
+  df_boot2 <- paris2[indices, ]
+  rcuantil10_aux2 <- rq(VALUE ~ PTRATIO, tau = 0.1, data = df_boot2)
+  rcuantil90_aux2 <- rq(VALUE ~ PTRATIO, tau = 0.9, data = df_boot2)
+  cuantil102 <- predict(rcuantil10_aux2, valores3)
+  cuantil902 <- predict(rcuantil90_aux2, valores3)
+  ratio_boot2[i] <- cuantil902/cuantil102
+}
+media_ratio2 <- mean(ratio_boot2)
+
+var_ratio2 <- var(ratio_boot2)
+sd_ratio2 <- sd(ratio_boot2)
+
+ls_ratio2 <- media_ratio2+1.96*sd_ratio2
+li_ratio2 <- media_ratio2-1.96*sd_ratio2
+
+# quantile(ratio_boot,.025)
+# quantile(ratio_boot,.975)
+
+
+```
+
+```{r histo1, echo = FALSE, fig.show='hold', warning=FALSE, message=FALSE, fig.cap="Distribución de nuestra simulación del ratio de desigualdad", fig.dim=c(5,3)}
+hist(ratio_boot)
+qqnorm(ratio_boot, col = "red")
+qqline(ratio_boot, col = "blue")
+```
+
+Nuestro primer Intervalo de confianza es (No podemos asumir normalidad de acuerdo a las gráficas presentadas, por lo que quitamos el .025 de cada cola) 
+
+$$IC_{completo} = (`r quantile(ratio_boot,.025)`,`r quantile(ratio_boot,.975)`)$$
+```{r histo2, echo = FALSE, fig.show='hold', warning=FALSE, message=FALSE, fig.cap="Distribución de nuestra simulación del ratio de desigualdad Dataframe Filtrado", fig.dim=c(5,3)}
+hist(ratio_boot2)
+qqnorm(ratio_boot2, col = "red")
+qqline(ratio_boot2, col = "blue")
+```
+
+El segundo intervalo es (Tampoco asumimos normalidad, seguimos mismo procedimiento que el 1er intervalo): 
+
+$$IC_{subconjunto} = (`r quantile(ratio_boot2,.025)`,`r quantile(ratio_boot2,.975)`)$$
+
+El 1er intervalo utiliza predicciones considerando $betas$ que expliquen el comportamiento de la población de interés (Cuantil seleccionado) para todo nivel de PTRATIO, es decir, puede captar de una mejor forma la relación que tiene esta variable respecto a nuestra variable de interés (VALUE). El considerar una 2da regresión con un subconjunto del total de nuestra información puede estimar $betas$ que sub o sobre dimensionen el efecto por lo que estaría sesgada la información que estamos obteniendo. **Nos quedamos con el primer intervalo**
+
+Para ejemplificar mostramos una gráfica (Figura 6) a continuación con la linea de regresión de los 4 ajustes. (**Rojo**: Cuantil10-90 de Muestra completa; **Azul**: Cuantil10-90 de Muestra limitada)
+
+```{r pregunta2e-graficas, echo = FALSE, fig.align = 'center', fig.cap = "Gráfico de dispersión con regresiones cuántilicas", message = FALSE, fig.dim=c(9,6)}
+plot(VALUE ~ PTRATIO, data = paris, pch = 16, main = "Plot")
+abline(rq(VALUE ~ PTRATIO, data = paris, tau = 0.1), col = "red", lty = 2)
+abline(rq(VALUE ~ PTRATIO, data = paris, tau = 0.9), col = "red", lty = 2)
+abline(rq(VALUE ~ PTRATIO, data = paris2, tau = 0.1), col = "blue", lty = 2)
+abline(rq(VALUE ~ PTRATIO, data = paris2, tau = 0.9), col = "blue", lty = 2)
+abline(v = 14, col = "gray60", lty = 5)
+abline(v = 16, col = "gray60", lty = 5)
+```
+\FloatBarrier
+
+## Métodos de Descomposición
+
+Buscamos hacer una investigavión más detallada de la relación $VALUE \sim SENA$
+
+### a,b,c) Regresión e interpretación
+En la tabla 7 reportamos el resultado de la regresiones
+
+- **a)** El $\beta_{1} = 0.255$ **es significativo hasta al 1%** de significancia. La interpretación es: "Que la propiedad colinde con el río sena está relacionado con un **aumento de 25.5%** en el costo mensual respecto a los que no colindan"
+- **c)** El nivel de significancia se mantiene. Sin embargo en magnitud pasa de 0.255 a 0.144, esto se debe a que al aumentar las variables de control el poder explicativo de la variable "SENA" disminuye ya que estaba captando la información de estas variables, es decir, había un problema de **Sesgo por variables omitidas**. La interpretación se modifica a "Todo lo demás constante, el que la propiedad colinde con el río sena está relacionado con un **aumento de 14.4%** en el costo mensual respecto a los que no colindan", difiere a que antes era una derivada total ya que era la única variable explicativa en nuestra regresión y ahora es una derivada parcial. 
+
+```{r pregunta3a-seccc, echo = FALSE, results = 'asis', warning=FALSE}
+r3a <- lm(log(VALUE) ~ SENA, data = paris)
+cov3a <- vcovHC(r3a, type = "HC1")
+hc3a <- sqrt(diag(cov3a))
+
+paris_sena1 <- filter(paris, SENA == 1)
+paris_sena0 <- filter(paris, SENA == 0)
+
+r3b1 <- lm(log(VALUE)~CRIM+NOXCON+ROOMS+AGE+DIS+POPINDEX+log(TAX)+PTRATIO, data = paris_sena0)
+cov3b1 <- vcovHC(r3b1, type = "HC1")
+hc3b1 <- sqrt(diag(cov3b1))
+
+r3b2 <- lm(log(VALUE)~CRIM+NOXCON+ROOMS+AGE+DIS+POPINDEX+log(TAX)+PTRATIO, data = paris_sena1)
+cov3b2 <- vcovHC(r3b2, type = "HC1")
+hc3b2 <- sqrt(diag(cov3b2))
+
+r3c <- lm(log(VALUE)~CRIM+NOXCON+ROOMS+AGE+DIS+POPINDEX+log(TAX)+PTRATIO+SENA, data = paris)
+cov3c <- vcovHC(r3c, type = "HC1")
+hc3c <- sqrt(diag(cov3c))
+
+stargazer::stargazer(r3a,r3b1,r3b2, r3c,
+          type = "latex",
+          se = list(hc3a,hc3b1,hc3b2,hc3c),
+          header = FALSE,
+          add.lines = list(c("Muestra","Completa", "SENA=0","SENA=1", "Completa"),
+                           c("Errores","Heteroc","Heteroc","Heteroc","Heteroc")),
+          omit.stat = c("f","adj.rsq","ser"))
+
+```
+\FloatBarrier
+
+### d) Tabla de medias
+```{r pregunta3d-secc, echo=FALSE, warning=FALSE, results='asis', message=FALSE}
+paris_sena1 <- filter(paris, SENA == 1)
+
+paris_sena0 <- filter(paris, SENA == 0)
+
+paris_sena0 = select(paris_sena0,CRIM,NOXCON,ROOMS,AGE,DIS,POPINDEX,TAX,PTRATIO) %>%
+  mutate(TAX = log(TAX)) %>% summarise_all(., mean) %>% pivot_longer(., cols = CRIM:PTRATIO, names_to = "VARIABLES", values_to = "SENA=0")
+
+paris_sena1 = select(paris_sena1,CRIM,NOXCON,ROOMS,AGE,DIS,POPINDEX,TAX,PTRATIO) %>%
+  mutate(TAX = log(TAX)) %>% summarise_all(., mean) %>% pivot_longer(., cols = CRIM:PTRATIO, names_to = "VARIABLES", values_to = "SENA=1")
+
+paris_table <- left_join(paris_sena0, paris_sena1)
+rownames(paris_table) <- c("CRIM","NOXCON","ROOM","AGE","DIS","POPINDEX","ln(TAX)","PTRATIO")
+paris_table <- mutate(paris_table, VARIABLES=rownames(paris_table))
+
+kable(paris_table, digits = 2)
+```
+\FloatBarrier
+
+### e) Ejercicio final
+
+
+$$\begin{aligned}
+&\hat{\Delta}_{X}=\hat{\beta^*}(\overline{X}_{1}-\overline{X}_{0}) = 0.111\\
+&\hat{\Delta}_{S}=\hat{\Delta}-\hat{\Delta}_{X}= 0.144\\
+&\hat{\theta}=\frac{\hat{\Delta}_{X}}{\hat{\Delta}}=0.435*100\%=43.5\%
+\end{aligned}$$
+
+Donde podemos interpretar cada variable de la siguiente manera: 
+
+- (i) $\hat{\Delta}_{S}$: Equivale al coeficiente de la $\beta_{SENA}$ con el modelo completo (regresión 4). Para entender primero tendríamos que saber qué relevancia tiene $\hat{\Delta}_{X}$, al momento de hacer $\overline{X}_{1}-\overline{X}_{0}$ estamos viendo cuánto varia en promedio cada variable respecto a los dos escenarios posibles de SENA y al multiplicarlo por el vector de $\hat{\beta^*}$ relacionamos ese cambio con la variable dependiente *VALUE*, lo que que parece indicar que es una forma de calcular el **"poder explicativo"** que absorbe la variable SENA del resto de variables respecto a VALUE al momento de no incluir a cada una de estas variables dentro de la regresión.
+- (ii) $\hat{\theta}$: Es el porcentaje del $\beta_{SENA}$ que está generado por el sesgo de omisión de variables, es decir, ese incremento con el que está relacionado colindar con el río sena el 43.5% realmente estaría ocasionado por variables omitidas y no de una manera directa por la variable SENA 
+
+```{r pregunta3e-secc, echo=FALSE, warning=FALSE, results='asis', message=FALSE}
+betas <- coefficients(r3c)[1:9]
+x0 <- c(1, as.vector(t(paris_table$`SENA=0`)))
+x1 <- c(1, as.vector(t(paris_table$`SENA=1`)))
+delta <- coefficients(r3a)[2] # Coeficiente estimado de la regresion simple VALUE~SENA
+delta_x <- t(betas)%*%(x1-x0) # Sesgo por variables omitidas
+delta_s <- delta - delta_x # Coeficiente estimado de la regresión multiple (añadiendo nuevas variables de control) 
+theta <- delta_x/delta # Porcentaje explicativo que está generado por la omisión de variables. 
+```
+
+
+
