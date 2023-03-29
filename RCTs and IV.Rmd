@@ -1,0 +1,637 @@
+---
+title: "Tarea 1 - Econometría Aplicada II"
+author: "Mario Medina - 156940"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+header-includes:
+  - \usepackage{placeins}
+  - \usepackage{rotating}
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    toc: TRUE
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	fig.height = 4,
+	fig.width = 6,
+	message = FALSE,
+	warning = FALSE,
+	cache = FALSE,
+	digits = 3,
+	width = 48
+)
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_hooks$set(plot = function(x, options)  {
+  paste0(knitr::hook_plot_tex(x, options), "\n\\FloatBarrier\n")
+})
+```
+
+```{r librerias_lectura, include=FALSE, warning=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(knitr)
+library(bootstrap)
+library(sandwich)
+library(equatiomatic)
+library(car)
+library(stargazer)
+library(quantreg)
+library(caret)
+library(margins)
+library(nnet)
+library(mlogit)
+library(RCT)
+library(leebounds)
+library(devtools)
+library(Matching)
+library(EnvStats)
+wd <- "C:/Users/mario/OneDrive/ITAM/2DO SEMESTRE/Econometria Aplicada II/Tarea 1"
+setwd(wd)
+access1 <- fread("access_1.csv")
+access2 <- fread("access_2.csv")
+set.seed(156940)
+options(scipen=999)
+```
+
+# Balance
+
+## Supuesto SUTVA
+El problema de asignación individual es que alumnos dentro de una misma escuela pueden pertenecer a diferentes grupos (i.e. una persona a control y otro a tratamiento). Al estar tan cerca puede suceder que los de control, obtengan material o conocimientos de los alumnos de tratamiento lo que al final se traduce en el no cumplimiento del supuesto de **No interferencia**. Los datos podrían estar contaminados.
+
+```{r pregunta-1a, echo = FALSE, warning = FALSE}
+n <- 280
+```
+
+## Asignación Aleatoria
+Para validar la aleatoriedad de la asignación de grupos esperamos que en promedio ambos sean iguales respecto a sus características. Para esto analizaremos una tabla mostrando promedios de las variables así como una regresión de la variable tratamiento como dependiente y el resto de variables recopiladas como regresoras. Esperando que ninguna sea significativa. 
+
+Al estar hablando de p-values tanto individuales como el de la prueba "F" de un valor tan alto, podemos concluir que las diferencias entre los promedios de los grupos **no son significativas**. Concluimos que existe aleatoriedad en el proceso de asignación.  
+```{r pregunta-1b, echo = FALSE, warning = FALSE, results = 'asis'}
+variables <- 
+  access1 %>% dplyr::select(., -c(V1, participant_id))
+ 
+tabla_balance1 <- balance_table(variables, treatment = "group")
+stargazer::stargazer(as.data.frame(tabla_balance1), 
+                     header = FALSE,
+                     type = "latex",
+                     title = "Tabla de Balance",
+                     summary = FALSE)
+
+tabla2 <- balance_regression(variables, treatment = "group")
+
+stargazer::stargazer(as.data.frame(tabla2$F_test),
+                     header = FALSE,
+                     type = "latex", 
+                     title = "Prueba F (Conjunta)",
+                     summary = FALSE)
+```
+\FloatBarrier
+
+# Cálculos de Poder
+
+## MDES: Minimum detectable effect size
+Para los cálculos de esta sección asumiremos $\alpha = 5\%$ (nivel significancia); que la distribución entre grupos es 50-50 ( $\gamma = 50\%$ ) y buscamos un poder estadístico del $\psi = 80\%$ e inicialmente una N = 361, dado que era el objetivo inicial del estudio.
+
+$$
+\frac{\tau}{\sigma} = \frac{\Phi^{-1}(\psi)+\Phi^{-1}(1-\frac{\alpha}{2})}{\sqrt{N\gamma(1-\gamma)}} = \frac{0.8416 + 1.960}{9.5}=0.2949
+$$
+El MDES esperado es de 0.2949 unidades de efecto del bienestar de los alumnos. 
+
+```{r pregunta-2a, echo = FALSE, warning = FALSE}
+psi <- 0.8
+alpha <- 0.05
+N <- 361 
+gamma <- 0.5
+a <- qnorm(psi)
+b <- qnorm(1-(alpha/2))
+c <- sqrt(N*gamma*(1-gamma))
+MDES1 <- (a+b)/c
+```
+
+## Cambio en poder estadístico dado cambio en N
+Dado que la N final disminuye a 280 se tendrá una afectación de poder estadístico. Cuyo nuevo valor lo podemos calcular de la siguiente forma. 
+
+$$
+\psi = \Phi(\frac{\tau\sqrt{N\gamma(1-\gamma)}}{\sigma}-\Phi^{-1}(1-\frac{\alpha}{2})) = \Phi(2.467-1.960) = 0.6940
+$$
+
+El nuevo poder estadístico esperado es de 0.694. Era esperado una disminución dado que la N es menor. 
+
+```{r pregunta-2b, echo = FALSE, warning = FALSE}
+N <- 280
+a <- MDES1*sqrt(N*gamma*(1-gamma))
+b <- qnorm(1-(alpha/2))
+poder_estadistico <- pnorm(a-b)
+```
+
+## Cambio en poder estadístico dado cambio en Gamma (% de tratamiento vs. % de control)
+Querido director del proyecto ACCESS, 
+
+Le escribo el siguiente correo para informarle las implicaciones que tiene el disminuir el porcentaje de participantes dentro del programa ACCESS. El tener el 50% maximiza el poder estadístico, recordemos que el poder estadístico lo entendemos como la probabilidad de rechazo de que *no hay efecto* dado que sí existe, es por esto que buscamos maximizar este indicador. Adjunto una gráfica, donde ya consideramos la disminución de los participantes de 361 a 280, donde se refleja el trade-off entre el poder estadístico y el % de participantes en el tratamiento. Adelanto que el cambio de tener 149 individuos dentro del grupo de tratamiento implicará una **disminución de 0.002** en el poder estadístico.  
+
+Quedo al pendiente de sus dudas u observaciones. 
+
+Saludos! 
+
+```{r pregunta-2c, echo = FALSE, warning = FALSE, fig.cap = "Gráfica poder estadístico vs. Gamma"}
+gamma_vector <- seq(0,1,0.001)
+N_vector <- rep(280, 1001)
+MDES_vector <- rep(MDES1, 1001)
+b_vec <- rep(b, 1001)
+
+power_df <- data.frame(
+  N <- N_vector,
+  MDES <- MDES_vector,
+  gamma <- gamma_vector,
+  b <- b_vec
+)
+
+names(power_df) <- c("N","MDES","GAMMA","b")
+power_df <- 
+  power_df %>%
+  mutate(., a = MDES*sqrt(N*GAMMA*(1-GAMMA)),
+         poder_estadistico = pnorm(a-b))
+
+new_gamma <- 149/280
+new_gamma1 <- 149/361
+
+ggplot(power_df, aes(x=GAMMA, y=poder_estadistico)) +
+  geom_line(color="darkblue") + 
+  geom_vline(xintercept = 0.5, color = "green", size = 1, linetype = "dotted") + 
+  geom_hline(yintercept = 0.6940550, color = "green", size = 1, linetype = "dotted") + 
+  geom_vline(xintercept = new_gamma, color = "orange", size = 1, linetype = "dotted") +
+  geom_hline(yintercept = 0.6922785, color = "orange", size = 1, linetype = "dotted") + 
+  labs(x = "Gamma (% En tratamiento)", y = "Poder estadístico", title = "Trade-Off Poder estadístico vs. GAMMA") + 
+  theme_bw()
+
+```
+\FloatBarrier
+
+# Atrición
+Tenemos 30 alumnos que no pudimos recabar sus resultados (omisión de la variable objetivo). Esto puede generar problemas dependiendo de las características de estos individuos. 
+
+## Tasa de atrición 
+Recordemos que nuestra N inicial es de 280. Dado que no tenemos el dato final de 30 individuos tendremos una tasa de atrición total de 10.7%.
+
+- **Grupo control:** Dado que 23 pertenecen al grupo de control y en total dentro de este grupo tenemos 131 individuos la tasa de atrición es de **17.5%**
+- **Grupo tratamiento:** Dado que 23 pertenecen al grupo de control y en total dentro de este grupo tenemos 131 individuos la tasa de atrición es de **4.7%**
+
+Que el porcentaje de atrición sea diferenciado entre grupos puede llegar a afectar en validación interna. 
+```{r pregunta-3a, echo = FALSE, warning = FALSE, fig.cap="Cantidad de individuos por grupo"}
+n_grupo <- group_by(access2, group) %>% tally() 
+n_atricion <- filter(access2, is.na(lassi_raw_study.2)) %>% group_by(., group) %>% tally() 
+names(n_atricion) <- c("group","attritors")
+resumen_atricion <- left_join(n_grupo, n_atricion, by = "group") %>%
+  mutate(., percentage = round(attritors/n*100,2))
+total <- c("total",280,30,round(30/280*100,2))
+resumen_atricion <- rbind(resumen_atricion, total)
+kable(resumen_atricion, caption = "Atricion por grupo")
+```
+\FloatBarrier
+
+## Validez Interna y Externa
+Validez interna la checaremos por medio de nuestra tabla de balance, presentamos a continuación si el balance se ve afectado sin considerar a estos 30 individuos. (Considerando únicamente las variables presentes antes de la fase activa del tratamiento).
+
+Observamos que las diferencias entre las variables siguen sin ser significativas, por lo que podemos afirmar que no tendremos problemas de **validez interna**. Pero podrá tendrá un efecto en el poder estadístico. 
+```{r pregunta-3b, echo = FALSE, warning=FALSE, results = 'asis'}
+variables <- 
+  filter(access2,!is.na(lassi_raw_study.2)) %>% dplyr::select(., -c(V1, participant_id, eligibility, lassi_raw_study.2:lassi_raw_test_strat.2))
+
+tabla_balance2 <- balance_table(variables, treatment = "group")
+names(tabla_balance2) <- c("variables1", "Media_C2", "Media_T2", "p_value2")
+
+tabla_balance_fin <- dplyr::left_join(tabla_balance1, tabla_balance2, by = "variables1")
+ns <- c("N", 131, 149, NA, 131-23, 149-7, NA)
+
+tabla_balance_fin <- rbind(tabla_balance_fin, ns)
+tabla_balance_fin$Media_control1 <- round(as.numeric(tabla_balance_fin$Media_control1),4)
+tabla_balance_fin$Media_trat1 <- round(as.numeric(tabla_balance_fin$Media_trat1),4)
+tabla_balance_fin$p_value1 <- round(as.numeric(tabla_balance_fin$p_value1),4)
+tabla_balance_fin$Media_C2 <- round(as.numeric(tabla_balance_fin$Media_C2),4)
+tabla_balance_fin$Media_T2 <- round(as.numeric(tabla_balance_fin$Media_T2),4)
+tabla_balance_fin$p_value2 <- round(as.numeric(tabla_balance_fin$p_value2),4)
+  
+stargazer::stargazer(as.data.frame(tabla_balance_fin), 
+                     header = FALSE,
+                     type = "latex", 
+                     title = "Tabla de balance con original vs. muestra restante",
+                     font.size = "footnotesize",
+                     summary = FALSE)
+
+tabla2 <- balance_regression(variables, treatment = "group")
+
+stargazer::stargazer(as.data.frame(tabla2$F_test),
+                     header = FALSE,
+                     type = "latex", 
+                     title = "Prueba F de la prueba de balance con muestra restante",
+                     summary = FALSE)
+```
+\FloatBarrier
+
+Para el tema de **validez externa** antes que nada tenemos que considerar que el experimento se está haciendo con un grupo específico de individuos, no podemos dar por hecho que los resultados serán aplicables por ejemplo a personas con TDAH de menor edad. Nuestra población de Estudiantes de las universidades de Washington y Delaware tendrán ciertas características específicas respecto a género, edad, raza, etc. 
+
+Para ver si el problema de atrición nos genera problemas de validez externa usaremos una tabla de balance donde comparamos el promedio de la muestra restante (250) vs. la parte de la muestra de la que no fue posible recuperar su "Y" final. (30)
+
+Observando la tabla podemos notar que hay una diferencia significativa en la variable de *more_than_1*. Si vemos los datos no hay ningún **attritor** que tenga más de 1 identidad racial; esto podría considerarse un problema de validez externa, si el ATE es heterogéneo podría querer decir que la población para la cual el estimador es representativo es distinta respecto a la población inicial que teníamos considerada en el estudio. En este caso que la población para la que será representativa será aquella que tiene en promedio 11-12% de gente con más de una identidad racial, cuando al inicio consideramos a la población que en promedio tiene 9-10%.
+
+```{r pregunta-3b-externa, echo = FALSE, warning = FALSE, results = 'asis'}
+variables <- 
+  access2 %>%
+  dplyr::mutate(., attitor = ifelse(is.na(lassi_raw_study.2), 1, 0)) %>%
+  dplyr::select(., -c(V1, participant_id, eligibility, group, lassi_raw_study.2:lassi_raw_test_strat.2))
+
+tabla_externa <- balance_table(variables, treatment = "attitor")
+names(tabla_externa) <- c("variables1", "Media_Mantenemos", "Media_Attritors", "p_value")
+
+stargazer::stargazer(as.data.frame(tabla_externa), 
+                     header = FALSE,
+                     type = "latex", 
+                     title = 'Tabla de Balance entre muestra restante vs. Attritors',
+                     summary = FALSE)
+```
+\FloatBarrier
+
+# Efectos de Tratamiento 
+
+Estamos interesados en calcular el efecto de tratamiento en específico de la variable correspondiente al puntaje de *Learning and Study Strategies Inventory* que refleja el nivel general de destreza para aplicar técnicas de estudio.
+
+El parámetro poblacional que buscamos estimar es el **Efecto de Tratamiento ( $TE_{i} = y_i^T - y_i^C$ )**; sin embargo, al ser imposible tener ambas observaciones para cada individuo no es posible calcularlo. Lo estimaremos mediante el **Average Treatment Effect ( $ATE = \tau = E(y^T - y^C)$ )** donde el valor estimado será $\hat{\tau} = \bar{y}^T - \bar{y}^C$ y en MCO esto es equivalente a $\beta_{group}$ .Lo entenderemos como el efecto promedio que tendrá el tratamiento (programa ACCESS) sobre la variable objetivo, en este caso *lassi_raw_study.2* que se traducirá en el puntaje de nivel de destreza para aplicar técnicas de estudio. 
+
+Nuestra estimación se podría ver afectada por lo tratado en el inciso anterior (Atrición), sin embargo, lo que validamos con las pruebas correspondientes es que no hubo afectación en la validez interna, por lo que nuestro estimador seguirá siendo válido para nuestra muestra en general. Si hubiéramos visto afectación, nuestro **ATE** solo será asumible para el perfil de personas denominado "Never attritors"
+
+Antes de mostrar resultados explicaremos el porqué de los controles seleccionados para (iii) 
+
+- **Gender**: Indicadora, gender = 1 (Hombre) 
+- **Caars_Raw_DSM_Tot.1** = Gravedad del TDAH pre-tratamiento
+- **college_year**: año de universidad que cruza
+
+Al haber demostrado que la variable "Group" no está relacionada con ningúna del resto de variables (Inciso 1, tabla de balance) esperaríamos que agregar controles no afecte significativamente el valor del $\beta_{group}$. Sin embargo, agregar variables que puedan afectar directamente a la variable objetivo puede ayudar a tener un **estimador más eficiente (menor varianza)**. Creemos que las 3 variables seleccionadas pueden ayudar a explicar el puntaje de destreza en técnicas, ya sea por las diferencias naturales de género, la gravedad del TDAH pre-tratamiento podría significar diferentes grados de complejidad al momento de la prueba y el año de universidad dado que más adelante más técnicas o más habilidades aprendidas. 
+
+A continuación mostramos una tabla con los resultados de OLS sin controles y OLS con controles. 
+
+**Para el caso del estimador de Neyman: $\hat{\tau} = \bar{y}^T - \bar{y}^C = 1.829$ y $Var(\hat{\tau}) = 0.55$ por lo que $sd(\hat{\tau}=0.746)$ **
+
+$H_{0} : \tau = 0$ 
+
+En los 3 casos podemos ver que el efecto promedio de tratamiento es significativo al menos al 5% de significancia estadística (Rechazamos hipótesis nula). Por lo que podríamos concluir que el programa ACCESS tiene un efecto de ~1.8 puntos en el puntaje de *Learning and Study Strategies Inventory*
+
+
+```{r pregunta-4aOLS, echo = FALSE, warning=FALSE, results = 'asis'}
+# OLS
+access2_250_OLS <- 
+  dplyr::select(access2, -c(V1, eligibility, participant_id, lassi_raw_test_strat.2,lassi_raw_time_management.2,lassi_raw_motivation.2)) %>%
+  dplyr::filter(., !is.na(lassi_raw_study.2))
+
+OLS <- lm(lassi_raw_study.2 ~ group, data = access2_250_OLS)
+#summary(OLS)
+se_ols <- sqrt(diag(vcovHC(OLS, type = "HC1")))
+
+# NEYMAN 
+yT <- mean(access2_250_OLS$lassi_raw_study.2[access2_250_OLS$group==1])
+yC <- mean(access2_250_OLS$lassi_raw_study.2[access2_250_OLS$group==0])
+Neyman <- yT - yC 
+
+VarT <- var(access2_250_OLS$lassi_raw_study.2[access2_250_OLS$group==1])/length(access2_250_OLS$lassi_raw_study.2[access2_250_OLS$group==1])
+VarC <- var(access2_250_OLS$lassi_raw_study.2[access2_250_OLS$group==0])/length(access2_250_OLS$lassi_raw_study.2[access2_250_OLS$group==0])
+VarNeyman <- VarT + VarC
+
+tstat <- Neyman/sqrt(VarNeyman)
+
+p_Neyman <- 2*(1-pnorm(tstat))
+
+# OLS Controles
+OLS_controles <- lm(lassi_raw_study.2 ~ group+gender+caars_raw_dsm_tot.1+college_year, data = access2_250_OLS)
+#summary(OLS_controles)
+se_control <- sqrt(diag(vcovHC(OLS_controles, type = "HC1")))
+
+modelos <- list(OLS, OLS_controles)
+stargazer::stargazer(modelos, 
+                     header = FALSE, 
+                     type = 'latex', 
+                     title= 'Estimaciones del ATE via OLS con y sin Controles', 
+                     summary = FALSE, 
+                     se = list(se_ols, se_control), 
+                     font.size = 'footnotesize')
+```
+\FloatBarrier
+
+# Lee Bounds
+
+Crearemos una variable dicotómica *Visible* que será = 1 si la variable objetivo es diferente a "NA" y 0 donde sea igual a "NA" para poder realizar el cálculo. 
+
+Lee Bounds nos sirve para calcular un intervalo para el efecto promedio del tratamiento, sin embargo, este dato solo es válido para las personas del perfil "Never Attritors" (NA) ya que se utiliza para poder dar un rango de efecto porque está presente un problema de **validez interna**. ¿Cómo calculamos el % de NA?
+
+$$\%NA = \frac{\frac{N_{C,S}}{N_C}}{\frac{N_{T,S}}{N_{T}}} = 86.5\%$$
+
+Dado que es <1 comprobamos el supuesto de monotonicidad, Negative Selected Attritors (NSA) no existen. La lógica del ejercicio es que dado que perdimos observaciones siempre y cuando hayan afectado el balance, el efecto estimado únicamente podrá ser asumible para las personas que siempre se quedarían a formar parte del experimento. Dado que no sabemos ese porcentaje de personas, asumiremos los casos extremos: Todos NA o todos PSA. 
+
+El intervalo obtenido es 
+
+$$
+Lee.Bounds = (0.388,3.171)
+$$
+Podemos observar que el 0 no forma parte del intervalo y el 1.8 sí. Hace sentido con lo obtenido en el inciso anterior. Pero... ¿Tiene sentido calcular Lee Bounds? **No** ya que **no encontramos evidencia de problemas de validez interna en nuestro experimento**. Podremos seguir reportanto un **ATE** para el total de nuestra muestra. En el caso de validez externa donde sí encontramos una ligera afectación debido a la atrición observada, Lee Bound no ayuda a solucionar este problema. 
+
+```{r pregunta-5, echo = FALSE, warning = FALSE}
+access2_lee <- 
+  access2 %>%
+  dplyr::mutate(visible = ifelse(!is.na(lassi_raw_study.2),1,0))
+
+NT <- sum(access2_lee$group)
+NC <- length(access2_lee$group) - NT
+
+NTS <- sum(access2_lee$group*access2_lee$visible)
+NCS <- 131-23
+
+num_NA <- NCS/NC
+den_NA <- NTS/NT
+
+NA_perc <- num_NA/den_NA
+
+leedata <- data.frame(
+  treat=access2_lee$group,
+  selection=access2_lee$visible,
+  outcome=access2_lee$lassi_raw_study.2)
+
+lee_bound <- GetBounds(leebounds(leedata))
+```
+
+# Estratificacion 
+
+## Estratificacion por College Year
+Para validar si siguieron al recomendación lo mejor es validar que exista un % similar al de $N_{T}/N$ pero por estrato, validamos este porcentaje para cada estrato y lo mostramos en la siguiente tabla. Dado que es para asignar aleatoriamente, utilizamos las 280 observaciones. 
+
+Podemos observar que a un total hablamos del **53%** en tratamiento, sin embargo dentro de los estratos 2 de ellos difieren. El estrato 3 y 4 cuentan con **49%** y **59%** respectivamente, lo cual parece indicar que **no se cuidó del todo el estratificar por año escolar.** 
+
+```{r pregunta-6a, echo = FALSE, warning = FALSE, fig.cap = 'Tabla de % en tratamiento por estrato'}
+estratos <- 
+  access2 %>% 
+  dplyr::group_by(., college_year) %>%
+  dplyr::summarize(., 
+                   Treated = sum(group))
+total_t <- c("Total", sum(estratos$Treated))
+estratos <- rbind(estratos, total_t)
+
+estratos_n <- 
+  access2 %>% 
+  dplyr::group_by(., college_year) %>%
+  dplyr::tally()
+
+total_n <- c("Total", sum(estratos_n$n))
+estratos_n <- rbind(estratos_n, total_n)
+
+estratos_perc <- dplyr::left_join(estratos, estratos_n) %>%
+  dplyr::mutate(., perc_T = round(as.numeric(Treated)/as.numeric(n),2))
+
+kable(estratos_perc, caption = "N^t/N por estrato")
+```
+\FloatBarrier
+
+## Estimadores de ATE por estrato
+Utilizamos los datos de las 250 observaciones restantes de las que tenemos visibilidad de la $y$ objetivo *lassi_raw_study.2*
+
+En total tenemos 4 estratos, por lo que obtendremos 4 estimadores de Neyman para cada estrato, los mostramos en la siguiente tabla.
+
+```{r pregunta-6b, echo = FALSE, warning = FALSE}
+ate_estratificado <- 
+  access2 %>%
+  dplyr::filter(., !(is.na(lassi_raw_study.2)))
+
+estratos_v <- sort(as.vector(t(distinct(ate_estratificado, college_year))))
+yT_v <- c()
+yC_v <- c()
+Neyman_v <- c()
+N_v <- c()
+Var_v <- c()
+
+for (estrato in estratos_v) {
+  df_aux <- dplyr::filter(ate_estratificado, college_year == estrato)
+  
+  N <- length(df_aux$group)
+  yT <- mean(df_aux$lassi_raw_study.2[df_aux$group==1])
+  yC <- mean(df_aux$lassi_raw_study.2[df_aux$group==0])
+  Neyman <- yT - yC
+  VarT <- var(df_aux$lassi_raw_study.2[df_aux$group==1])/length(df_aux$lassi_raw_study.2[df_aux$group==1])
+  VarC <- var(df_aux$lassi_raw_study.2[df_aux$group==0])/length(df_aux$lassi_raw_study.2[df_aux$group==0])
+  VarNeyman <- VarT + VarC
+  
+  N_v <- rbind(N_v, N)
+  yT_v <- rbind(yT_v, yT)
+  yC_v <- rbind(yC_v, yC)
+  Neyman_v <- rbind(Neyman_v, Neyman)
+  Var_v <- rbind(Var_v, VarNeyman)
+}
+
+ATE_estratos <- as.data.frame(cbind(estratos_v, N_v, yT_v, yC_v, Neyman_v, Var_v))
+names(ATE_estratos) <- c("Estrato", "N", "yT", "yC", "Neyman", "Var_ATE")
+
+ATE_estratos <- 
+  ATE_estratos %>% 
+  dplyr::mutate(., SD_ATE = sqrt(as.numeric(Var_ATE)))
+
+kable(ATE_estratos, caption = "ATE Estimado por Estrato", digits = 4)
+```
+\FloatBarrier
+
+```{r pregunta-6b2, echo = FALSE, warning = FALSE}
+ATE_estratos <- 
+  ATE_estratos %>%
+  dplyr::mutate(., 
+                proporcion = N/sum(N),
+                proporcion_ATE = proporcion*Neyman,
+                proporcion_Var = (proporcion^2)*Var_ATE)
+ATE_estratificado_estimacion <- sum(ATE_estratos$proporcion_ATE)
+Var_ATE_estratificado_estimacion <- sum(ATE_estratos$proporcion_Var)
+```
+
+Calcularemos el valor estimado del **ATE agregado** junto con su varianza ponderando los Estimadores de Neyman para cada estrato de acuerdo a la proporción respecto al total de observaciones. 
+
+- **ATE agregado:** `r round(ATE_estratificado_estimacion,4)`
+- **Var ATE agregado:** `r round(Var_ATE_estratificado_estimacion,4)`
+- **SD ATE agregado:** `r round(sqrt(Var_ATE_estratificado_estimacion),4)`
+
+A continuación mostramos la tabla de regresiones donde agregamos un OLS con interacciones para corroboran nuestra estimación por estratificación.
+
+Podemos corroborar la relación de los **ATE estratificado** con los coeficientes de nuestra regresión con interacciones de la siguiente forma
+
+
+$$
+\begin{aligned} &\hat{ATE_{1}}: \beta_{1} = 1.03\\
+&\hat{ATE_{2}}: \beta_{1} + \beta_{5} = 1.92\\
+&\hat{ATE_{3}}: \beta_{1} + \beta_{6} = 2.89\\
+&\hat{ATE_{4}}: \beta_{1} + \beta_{7} = 1.99\\
+\end{aligned}
+$$
+
+```{r pregunta-6b3, echo = FALSE, warning = FALSE, results = 'asis'}
+ate_estratificado <- 
+  ate_estratificado %>%
+  dplyr::mutate(., 
+                estrato1 = ifelse(college_year==1,1,0),
+                estrato2 = ifelse(college_year==2,1,0),
+                estrato3 = ifelse(college_year==3,1,0),
+                estrato4 = ifelse(college_year==4,1,0),
+                estrato1_group = estrato1*group,
+                estrato2_group = estrato2*group,
+                estrato3_group = estrato3*group,
+                estrato4_group = estrato4*group)
+
+OLS_homo <- lm(lassi_raw_study.2 ~ group, data = ate_estratificado)
+
+OLS_estrato <- lm(lassi_raw_study.2 ~ group + estrato2 + estrato3 + estrato4 + estrato2_group + estrato3_group +
+                    estrato4_group, data = ate_estratificado)
+var1 <- vcovBS(OLS_estrato, cluster = ate_estratificado$college_year) #clusters
+se_estrato <- sqrt(diag(var1))
+
+models <- list(OLS_homo,OLS,OLS_controles,OLS_estrato)
+se_estratos <- list(NULL,se_ols, se_control, se_estrato)
+
+stargazer::stargazer(models, 
+                     type = "latex",
+                     se = se_estratos, 
+                     header = FALSE,
+                     add.lines = list(c("Errores","Homoc","Heteroc","Heteroc","Clusters")),
+                     omit.stat = c("f","adj.rsq","ser"),
+                     title= 'OLS: Homoc+Heteroc+Clusters',
+                     font.size = 'footnotesize')
+```
+\FloatBarrier
+
+## ¿Qué tipo de errores parecen ser los más adecuados? 
+Contemplamos errores del tipo homocedásticos, hereocedásticos y clusters. Pero... ¿Cuáles son los más cercanos al estimador de Neyman? 
+
+La respuesta es que los **heterocedásticos**. Los obtenidos por errores clusters difieren un poco, pero esto puede ser explicado a que realmente la estratificación no se llevo a cabo de la manera correcta como se indicó en el inciso (a) de esta sección. Los homocedásticos no están del valor obtenido por medio del estimador de Neyman, sin embargo los heterocedásticos son los más similares. 
+
+# FETs
+
+## P-value para H0
+Evaluaremos por medio de la prueba de Fisher Exact Test (FETs) la siguiente hipótesis nula. 
+
+$$
+H_{0}: No. existe.efecto.causal
+$$
+La prueba de FETs nos indica qué tanto el efecto causal es debido a la aleatoriedad de que solo tenemos 1 sola medición. Utilizamos las 250 observaciones y realizaremos un ejercicio de permutacion donde analizaremos todas las opciones posibles de observar un valor más extremo que nuestro estimador de *Neyman*
+
+El **p-value observado es de 0.01** por lo que rechazamos la Hipótesis nula de que no existe efecto causal de nuestro programa. 
+
+```{r pregunta-7a, echo = FALSE, warning = FALSE}
+data_fets <- access2 %>% dplyr::filter(., !(is.na(lassi_raw_study.2))) 
+
+x <- 
+  as.vector(t(data_fets %>% 
+  dplyr::filter(., group==1) %>%
+  dplyr::select(., lassi_raw_study.2)))
+
+y <- 
+  as.vector(t(data_fets %>% 
+  dplyr::filter(., group==0) %>%
+  dplyr::select(., lassi_raw_study.2)))
+
+# Funcion para la prueba FETS
+fets <- twoSamplePermutationTestLocation(x, y, 
+                                 alternative = "two.sided",
+                                 n.permutations = 5000,
+                                 seed = 123)
+```
+
+## Intervalo de confianza (FETs) 
+Realizamos 5000 simulaciones dentro del FETs. Calcularemos un intervalo de confianza al 90%. Esto será quitando 5% de cada cola de la distribución. Mostramos a continuación la gráfica de nuestras simulaciones
+
+```{r pregunta-7b, echo = FALSE, warning = FALSE}
+dist_fets <- as.data.frame(fets[["stat.dist"]])
+names(dist_fets) <- c("w_estimado")
+ggplot(dist_fets, aes(x=w_estimado))+
+  geom_histogram(color="darkblue", fill="lightblue") + 
+  labs(x = "Estadistico para H0 (Neyma)", y = "Frecuencia", title = "Distribución de 5000 simulaciones para FETS")
+fets_inf <- quantile(dist_fets$w_estimado,.05)
+fets_sup <- quantile(dist_fets$w_estimado,.95)
+paste("El intervalo de confianza es: (",
+      round(fets_inf,4),", ",round(fets_sup,4), ")")
+```
+\FloatBarrier
+
+Para realizar el intervalo del estimador de Neyman de nuestros datos lo realizaremos por medio de bootstrap. El proceso será el mismo, realizar una distribución y quitar el 5% de cada cola. 
+
+```{r pregunta-7b2, echo = FALSE, warning = FALSE}
+neyman_boot <- c()
+for (i in 1:5000) {
+  indices <- sample(x = 1:250, size = 250, replace = TRUE)
+  df_boot <- data_fets[indices, ]
+  yT <- mean(df_boot$lassi_raw_study.2[df_boot$group==1])
+  yC <- mean(df_boot$lassi_raw_study.2[df_boot$group==0]) 
+  neyman_boot[i] <- yT - yC
+}
+
+dist_boot <- as.data.frame(neyman_boot)
+names(dist_boot) <- c("neyman_estimado")
+var_boot <- var(neyman_boot)
+mean_boot <- mean(neyman_boot)
+
+ggplot(dist_boot, aes(x=neyman_estimado))+
+  geom_histogram(color="darkblue", fill="lightblue") + 
+  labs(x = "Neyman", y = "Frecuencia", title = "Distribución de Neyman por Bootstrap")
+ney_inf <- quantile(dist_boot$neyman_estimado,.05)
+ney_sup <- quantile(dist_boot$neyman_estimado,.95)
+paste("El intervalo de confianza es: (",
+      round(ney_inf,4),", ",round(ney_sup,4), ")")
+```
+
+La intersección de los intervalos podría tener explicación debido a que se pierda al balance en nuestra muestra y veremos estimadores de neyman sesgados.
+
+# Problemas de participación
+Presentamos problemas de participación con 30 estudiantes. Este dato lo obtenemos una vez realizadas todas las estimaciones, dicho reporte indica que los 30 estudiantes no participaron por la complejidad en sus horarios. 
+
+## Perfil del estudiante
+Los 30 estudiantes forman parte del grupo de tratamiento $Z_{i}=1$ y no lo realizan $T_{i}=0$. La razón del horario parecería indicar que aunque su asignación hubiera sido a Control, tampoco hubieran hecho "el esfuerzo adicional" para conseguir o realizar actividades del programa. Por lo que estos individuos son **Never Takers**
+
+## Problema que ocasiona la participación parcial
+La decisión de no participar no está siendo aleatoria, por ende el estimador que hemos venido manejando como el estimado de Neyman (y por MCO) **será un estimador sesgado**. En concreto, decidir cumplir con actividades del programa puede ser una decisión basada en la carga académica que esté llevando el individuo, por lo tanto, habrá sesgo por variables omitidas.
+
+Debido a esto el **"ATE"** estimado para el total de nuestra muestra, ya no podremos entenderlo así, realmente el efecto tratado hasta el momento es el **ITT: Intent to Treat** (insesgado) que se entiende como "la intención del tratamiento", no el efecto. Que es lo que habíamos manejado hasta el momento.
+
+## Estimación Final
+Crearemos una variable dummy $T_{i}$ donde será 1 si cumplió el programa dado que le tocó y 0 si le tocó el programa pero no lo realizó (tomando de referencia elegibility). Si no le tocó grupo de tratamiento asumiremos que $T_{i}=0$. 
+
+Plantearemos solucionar el problema de participación parcial utilizando variables instrumentales. 
+
+$$
+FR: y_{i} = \gamma_{0}+\gamma_{1}Z_{i}\\
+1ra: T_{i}=\eta_{0}+\eta_{1}Z_{i}
+$$
+El **Efecto del programa** lo determinaremos como. 
+
+$$
+\beta_{1}=\hat{LATE}= \frac{\gamma_{1}}{\eta_{1}} = 2.32
+$$
+
+Este estimador del efecto del programa es aplicable únicamente a la población de **compliers**. ¿Es comparable vs. el estimador de ITT, efecto que hemos venido compartiendo? Realmente son estimadores diferentes, podrían ser iguales si toda nuestra población fuera *complier* (lo que no sucede), cuando tenemos el problema de participación parcial el ITT refleja el *efecto del programa en toda tu población* y LATE refleja *el efecto del programa de los que realmente cumplen*. 
+
+Por último, vale la pena calcular el LATE? En este caso donde no pareciera que se rompa la independencia entre Z y Y. Dado que no por ser parte del programa se verá beneficiado respecto a sus problemas de TDAH, si no que necesariamente necesitas participar en el "tratamiento". Z funciona como instrumento dado que es aleatorio (tablas de balance) y comprobamos la relevancia mostrando a continuación la tabla de la 1ra etapa en el proceso. 
+
+```{r pregunta-8, echo = FALSE, warning = FALSE, results='asis'}
+access2_last <-
+  access2 %>%
+  dplyr::filter(., !(is.na(lassi_raw_study.2))) %>%
+  dplyr::mutate(., Z = group,
+                Ti = ifelse(Z == 1 & eligibility == 2, 1,0))
+
+fr <- lm(lassi_raw_study.2 ~ Z, data = access2_last)
+first <- lm(Ti ~ Z, data = access2_last)
+gamma <- fr$coefficients[2]
+eta <- first$coefficients[2]
+beta <- gamma/eta
+
+stargazer::stargazer(first, 
+                     type = 'latex', 
+                     header = FALSE, 
+                     title = 'Primera etapa', 
+                     font.size = 'footnotesize')
+```
+
