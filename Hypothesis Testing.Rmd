@@ -1,0 +1,403 @@
+---
+title: "Tarea 1 Microeconometría Aplicada"
+author: "Mario Medina - 156940"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+header-includes:
+  - \usepackage{placeins}
+output: 
+  pdf_document:
+    toc: TRUE
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_hooks$set(plot = function(x, options)  {
+  paste0(knitr::hook_plot_tex(x, options), "\n\\FloatBarrier\n")
+})
+```
+
+```{r librerias_lectura, include=FALSE, warning=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(knitr)
+library(bootstrap)
+wd <- "C:/Users/mario/OneDrive/ITAM/1ER SEMESTRE/ECONOMETRIA I/TAREAS/TAREA 1"
+setwd(wd)
+data <- fread("speed_dating.csv")
+set.seed(156940)
+```
+
+```{r funciones_tests, include=FALSE}
+diferencias_medias <- function(x){
+  mujeres <- filter(x, female==1)
+  hombres <- filter(x, female==0)
+  diferencia_media <- mean(mujeres$intellicence_important) - mean(hombres$intellicence_important)
+  return(diferencia_media)
+}
+diferencias_atractivo <- function(x){
+  mujeres <- filter(x, female==1)
+  hombres <- filter(x, female==0)
+  diferencia_atractivo <- mean(mujeres$attractive_important) - mean(hombres$attractive_important)
+  return(diferencia_atractivo)
+}
+correlaciones <- function(x){
+  mujeres <- filter(x, female==1)
+  hombres <- filter(x, female==0)
+  dif_correlacion <- abs(cor(mujeres$age, mujeres$attractive_important))-abs(cor(hombres$age, hombres$attractive_important))
+  return(dif_correlacion)
+}
+```
+
+# Población y Muestreo
+
+## Muestra
+La aplicación puede tener un uso general a lo largo de la población de todas las edades, asimismo, a lo largo de todo el mundo; sin embargo, para el lanzamiento de un producto siempre es bueno empezar delimitando un subconjunto para focalizar los primeros esfuerzos. 
+
+La población objetivo del estudio son las personas de ambos géneros entre **24 y 28 años** dentro de EE.UU, que tengan un interés natural por la tecnología (ellos deciden participar en el estudio) y con interés en conocer personas para entablar una relación. Se adjunta un boxplot para visualizar la distribución de las edades de la muestra y comprobar la hipótesis de la edad. (Figura 1)
+
+La muestra considera perfiles muy específicos por lo que la relevancia del estudio es cuestionable. Está poblada principalmente de jóvenes con interés en estudiar posgrados y ubicados en Nueva York (Universidad de Columbia), por lo que las conclusiones que se puedan obtener no son representativas de toda la población objetivo (i.e. no todos tienen el interés de estudiar, ni viven en un área como Nueva York). 
+
+```{r poblacion, echo=FALSE, fig.dim=c(4,2), fig.cap = "Muestra de Estudiantes de Posgrados en la Universidad De Columbia"}
+data_edades <- data %>% mutate(female = ifelse(female==1, "Femenino", "Masculino"))
+edades <- ggplot(data_edades, aes(x=female, y=age, fill=female)) + 
+  geom_boxplot()+
+  labs(title="Distribución de edades",x="Género", y = "Edad")
+edades + theme_classic()
+```
+
+## Independiente e Identicamente Distribuida
+Al hablar de **independencia** es importante definir cuál es tu variable objetivo, ya que si se busca la mayor cantidad de "matches”, tu muestra *no es independiente* porque el match de una persona depende del otro en la cita, es decir, de otra observación en tu conjunto. Pero si la variable de interés es la decisión de querer salir con la pareja asignada *sí es una muestra independiente* pues una persona puede decir "Sí" sin importar la decisión de la otra. 
+
+**No** es Identicamente Distribuida ya que no todas las personas tienen la *misma probabilidad* de hacer match o de decidir sí salir con otra persona. Por ejemplo, si alguien le da mucha importancia a la religión esa persona tenderá a hacer match o a querer salir con alguien del mismo perfil, por lo que su probabilidad es diferente a alguien que no le dé importancia a ese factor.
+
+## Variables adicionales
+1. **País de Origen**: es una variable relevante tanto para ayudar a identificar intereses adicionales de la persona como para determinar que tan representativa es tu muestra, ya que aunque todos residan en Nueva York (U.Columbia) el poder contar con personas de diferentes lugares aumenta la significancia de tu conjunto de datos. 
+2. **Género con el que se identifica la otra persona**
+3. **Preferencia de género**: la selección aleatoria no aclara si es únicamente contemplando parejas "Femenino-Masculino" o si toma en cuenta alguna preferencia en específico, estas variables nos pueden ayudar a eliminar registros "basura" ya que si una persona con preferencias hacia el género masculino es emparejado con alguien del género femenino realmente no ayuda a comprender el comportamiento de este perfil de personas. 
+4. **Número de hijos con el que cuenta**: si bien el querer tener hijos puede estar contemplado dentro de la pregunta de intereses en común, el poder determinar desde antes si la persona tiene hijos puede ayudar a discriminar de una manera importante el conjunto de personas con el que alguien podría estar interesado en relacionarse
+
+## Base de datos Facebook App
+A primera instancia pudiera ser una buena oportunidad, ya que al contar con más observaciones obtienes un modelo con mayor información de entrenamiento y posiblemente se termine traduciendo en un aumento del poder predictivo; sin embargo, hay varias consideraciones a tener en cuenta para poder tomar una decisión final. 
+
+- **Variables adicionales de Facebook App**: al tener más variables tendríamos que considerar 2 opciones. Primero, si son variables que pudieramos poblar para nuestra muestra o bien, carecen de relevancia por lo que es posible eliminarlas. Así se podrían llegar a combinar ya que se tendrían las mismas variables explicativas.
+- **Población objetivo**: investigar si la población del estudio de Facebook App es la misma que la de nuestro estudio (i.e 24-28 años de edad dentro de EE.UU); asimismo, poder distinguir del otro conjunto de datos aquellos individuos que solo utilicen la plataforma de *Instagram* ya que es la plataforma sobre la cual accionaremos.
+- **Tendencias**: la muestra fue obtenida en 2018, por lo cual valdrá la pena analizar si las opiniones o comportamientos de las personas respecto a preguntas específicas ha cambiado. Por ejemplo, aunque la base de datos cumpliera con el perfil de la población objetivo (24-28 años), se debe de investigar si ambas bases son compatibles ya que si para la población de ese entonces el factor de religión era muy importante, pero hoy en día esa importancia ha disminuido, realmente los resultados no son comparables. Por lo que en lugar de dar más información metería "basura" en el modelo. 
+
+En conclusión, la decisión sobre usar o no la información de Facebook App dependerá de muchas factores pero intuitivamente el tener una diferencia de 4 años puede llegar a afectar de manera importante las conclusiones. Por lo que no se recomienda utilizar **solamente** la data de Facebook App y la opción de usarlas en conjunto deberá de ser tomada una vez analizada la información. 
+
+# Análisis Descriptivo
+
+## Variables Importantes
+```{r tabla_descriptiva, echo=FALSE}
+
+variables_importantes <- c("female","age","age_o","attractive_important","sincere_important", "intellicence_important",
+                          "funny_important", "ambtition_important","shared_interests_important","decision","match")
+
+data_variables <- data %>% select(all_of(variables_importantes))
+
+data_mean <- data_variables %>% mutate(across(c(1:11), mean),
+                                       across(c(1:11), ~round(., 2))) %>% distinct(., .keep_all = TRUE) %>%
+  pivot_longer(., cols = female:match, names_to = "Variables", values_to = "Media")
+data_median <- data_variables %>% mutate(across(c(1:11), median),
+                                         across(c(1:11), ~round(., 2))) %>% distinct(., .keep_all = TRUE) %>%
+  pivot_longer(., cols = female:match, names_to = "Variables", values_to = "Mediana")
+data_sd <- data_variables %>% mutate(across(c(1:11), sd),
+                                     across(c(1:11), ~round(., 2))) %>% distinct(., .keep_all = TRUE) %>%
+  pivot_longer(., cols = female:match, names_to = "Variables", values_to = "Desviación Estándar")
+data_min <- data_variables %>% mutate(across(c(1:11), min),
+                                      across(c(1:11), ~round(., 2))) %>% distinct(., .keep_all = TRUE) %>%
+  pivot_longer(., cols = female:match, names_to = "Variables", values_to = "Mínimo")
+data_max <- data_variables %>% mutate(across(c(1:11), max),
+                                      across(c(1:11), ~round(., 2))) %>% distinct(., .keep_all = TRUE) %>%
+  pivot_longer(., cols = female:match, names_to = "Variables", values_to = "Máximo")
+
+data_junta <- left_join(data_mean, data_median, by = "Variables") %>%
+  left_join(., data_sd, by = "Variables") %>%
+  left_join(., data_min, by = "Variables") %>%
+  left_join(., data_max, by = "Variables")
+
+kable(data_junta,
+      col.names  = c("Variables", "Media", "Mediana", "Desviación Estándar", "Mínimo", "Máximo"), 
+      align = "lccccc",
+      caption = "Tabla Descriptiva")
+```
+
+## Gráficos
+
+### Histograma
+La edad de las personas se encuentra mayormente en el rango entre 20 y 30 años. Esta distribución se presenta en ambos géneros; sin embargo, parece ser que en el género femenino está ligeramente más concentrado de 20 a 25 mientras que el másculino entre 25 a 30. Se presentan "outliers" para los dos géneros. (Figura 2)
+```{r histograma, echo = FALSE, warning = FALSE, fig.dim=c(4,2), fig.cap = "Distribución de la edades de la muestra", fig.align="center"}
+data_hist <- data %>% mutate(female = ifelse(female==1,"Femenino","Masculino"))
+bin_width <- 2*IQR(data$age)*length(data$age)^(-1/3)
+num_bins <- (max(data$age) - min(data$age))/bin_width
+ggplot(data_hist, aes(x=age, color = female, fill = female)) + 
+ geom_histogram(aes(y=..density..), bins = 35, alpha = 0.5)+
+ geom_density(alpha=.2, fill="#FF6666") 
+```
+
+### Gráfica de dispersión
+La relación Inteligencia-Atractivo es **inversamente proporcional** para ambos géneros. Es decir, mientras más importante el "atractivo", menos relevante el "el nivel de inteligencia". Es importante mencionar que para el *género femenino* está relación es menos marcada, podemos ver que la pendiente de la línea de regresión tiene una pendiente más cercana a 0; mientras que para el *género masculino* la pendiente es de mucha mayor magnitud, es decir, más cercana a -1 (Figura 3)
+
+```{r scatter_plot, echo = FALSE, warning = FALSE, fig.show="hold", fig.cap = "Relación entre la importancia que le dan las personas a la inteligencia y atractivo", out.width="50%", message = FALSE}
+data_scatter <- data %>% mutate(female = ifelse(female==1,"Femenino","Masculino"))
+ggplot(data_scatter, aes(x=attractive_important, y=intellicence_important, color=female)) +
+  geom_point() + 
+  #geom_smooth(method=lm, se=FALSE, fullrange=TRUE)+
+  theme_classic()
+
+ggplot(data_scatter, aes(x=attractive_important, y=intellicence_important, color=female)) +
+  geom_point() + 
+  geom_smooth(method=lm)+
+  theme_classic()
+```
+
+
+
+# Pruebas de Hipótesis
+Medida de éxito: Al menos el 30% de personas deciden salir con su pareja. 
+
+## Planteamiento 
+$$H_{0}: \overline{X}<.30$$
+
+$$H_{1}: \overline{X}\ge.30$$
+
+$\text{ donde }\overline{X} = \text{ a la media de mi variable "decisión"}$
+
+## Media de la variable decisión
+Para saber si al menos el 30% de la muestra aceptó salir con su pareja podemos observarlo vía la media  de la variable *decisión*. Este valor es **`r round(mean(data$decision),4)`** por lo que rechazaríamos la hipótesis nula, es decir, los datos muestran que al menos el 30% de la población aceptó salir con su pareja asignada.
+
+## Evaluación de prueba de hipótesis
+Se propone el siguiente estadístico "t". 
+
+$$t: \frac{\overline{X} - .30}{\sqrt{\frac{S^{2}}{n}}}$$
+Sustituimos por los valores: 
+```{r estadistico-t, echo=FALSE}
+media_decision <- mean(data$decision)
+suma <- 0 
+for (i in 1:length(data$decision)) {
+  suma_aux <- (data$decision[i]-media_decision)^2
+  suma <- suma+suma_aux
+}
+varianza_est <- (1/(length(data$decision)-1))*suma
+numerador <- media_decision-.3
+denominador <- (varianza_est/length(data$decision))^(1/2)
+t <- numerador/denominador
+```
+
+$$t: \frac{0.4333 - .30}{\sqrt{\frac{0.2456}{6760}}}=22.113$$
+
+Por la cantidad de observaciones la distribución t converge a una normal estándar. La prueba de hipótesis es una prueba de cola derecha por lo que la zona de rechazo es $t \ge c$ donde $c$ es `r round(qnorm(.9),4)` por lo que se **rechaza $H_{0}$**
+
+## Nota ejecutiva
+Se realizó un ejercicio de significancia estadística con el conjunto de datos recopilados del estudio en la Universidad de Columbia. El resultado del ejercicio confirma que se tendría al menos una probabilidad del 30% de que las personas acepten salir con su pareja asignada; sin embargo, el conjunto de datos utilizado fue muy limitado y las conclusiones del ejercicio están acotadas a este público. 
+
+Antes de hacer una inversión completa del proyecto se sugiere invertir en el lanzamiento de un piloto que incluya más territorios. El recopilar más información nos dará la oportunidad de hacer conclusiones más generales sobre toda nuestra población objetivo y tener certidumbre sobre los siguientes pasos. 
+
+# Bootstrap
+
+## Correlación entre edades e importancia de apariencia
+La correlación entre edad y la importancia de apariencia es de `r round(cor(x = data$age, y = data$attractive_important),4)`, se hace una gráfica de dispersión para ver la relación y el comportamiento de ambos géneros (Figura 4). Se observa que prácticamente no hay una relación alguna entre ambas variables. 
+```{r correlacion-edades-atractivo, echo = FALSE, fig.cap = "Correlación: Edad vs. Apariencia", fig.align="center", message=FALSE, out.width="50%"}
+ggplot(data_scatter, aes(x=attractive_important, y=age, color=female)) +
+  geom_point() + 
+  geom_smooth(method=lm)+
+  theme_classic()
+```
+
+## Prueba hipótesis: Correlación = 0
+Para evaluar esta prueba, se plantea la siguiente prueba de hipótesis
+
+$$H_{0}: r \ne 0$$
+$$H_{1}: r = 0 $$
+$\text{donde }r \text{ es la correlación entre edad e importancia de apariencia}$
+
+## Bootstrap con tamaño 6,760 y 1,000 Repeticiones
+El estadístico a evaluar es el siguiente (Asumiendo que $r$ se distribuye normal)
+```{r bootstrap-6760, echo=FALSE}
+correlacion_boot <- c()
+for (i in 1:1000) {
+  indices <- sample(x = 1:6760, size = 6760, replace = TRUE)
+  df_boot <- data[indices, ]
+  correlacion_boot[i] <- cor(x = df_boot$age, y = df_boot$attractive_important)
+}
+media_correlacion <- mean(correlacion_boot)
+var_correlacion <- var(correlacion_boot)
+suma_aux <- 0
+for (i in 1:1000) {
+  elemento <- (correlacion_boot[i]-media_correlacion)^2
+  suma_aux <- suma_aux + elemento
+}
+var_empirica <- (1/999)*suma_aux
+t_corr <- cor(data$age, data$attractive_important)/(var_correlacion)^(1/2)
+```
+
+$$t: \frac{r - 0}{\sqrt{\frac{\sigma^{2}}{n}}}$$
+
+$\text{donde }{\frac{\sigma^{2}}{n}} \text{ lo estimamos vía boostrap obteniendo un valor de}$ `r var(correlacion_boot)` $\text { sustituyendo}$
+
+$$t: \frac{0.06327949}{\sqrt{0.0001062}}=6.153$$
+
+Al tener un valor t de `r round(cor(data$age, data$attractive_important)/(var_correlacion)^(1/2),4)`, la zona de rechazo está dada por $|t|\ge t_{\frac{\alpha}{2},n-1}$ por la cantidad de observaciones se traduce en $|t|\ge Z_{\frac{\alpha}{2}}$. Al ser mayor que 3.5 **rechazamos la hipótesis nula** con un nivel de signifcancia dado por $\alpha \le .001$
+
+## Bootstrap con menor tamaño de muestra (3,000)
+```{r bootstrap-3000, echo=FALSE}
+correlacion_boot2 <- c()
+for (i in 1:1000) {
+  indices <- sample(x = 1:6760, size = 3000, replace = TRUE)
+  df_boot <- data[indices, ]
+  correlacion_boot2[i] <- cor(x = df_boot$age, y = df_boot$attractive_important)
+}
+media_correlacion2 <- mean(correlacion_boot2)
+var_correlacion2 <- var(correlacion_boot2)
+suma_aux2 <- 0
+for (i in 1:1000) {
+  elemento <- (correlacion_boot2[i]-media_correlacion2)^2
+  suma_aux2 <- suma_aux2 + elemento
+}
+var_empirica2 <- (1/999)*suma_aux2
+var_empirica2_ajustada <- (3000/6760)*(1/999)*suma_aux2
+# t_corr <- cor(data$age, data$attractive_important)/(var_correlacion)^(1/2)
+```
+Con un tamaño de muestra de 3,000 el valor estimado de la varianza es de `r var(correlacion_boot2)`, si aplicamos el valor de ajuste de $\frac{3,000}{6,760}$ nos acercamos más al valor esperado calculado con el tamaño de muestra original dando como resultado `r (3000/6760)*var(correlacion_boot2)`
+
+## Histograma De Bootstrap completo (6,760)
+Graficamos el histograma de las 1,000 simulaciones de nuestro bootstrap de tamaño 6,760 para darnos una idea de si es correcto asumir normalidad, se ajusta la distribución teórica de una $N(0.637,.0102)$; asimismo, utilizamos una grafica quantil-quantil para comprobar la normalidad de los datos. (Figura 5) 
+```{r histo-bootstrap, echo=FALSE, fig.cap="Comprobación de normalidad para el coeficiente de correlación", fig.show="hold", out.width="50%"}
+X <- rnorm(10000,media_correlacion,sd(correlacion_boot))
+hist(correlacion_boot,
+     xlab="r",
+     ylab = "Frecuencia", col = "#4ddbff",
+     freq = FALSE,
+     main = NULL)
+curve(dnorm(x,media_correlacion,sd(correlacion_boot)),
+      col = "#ff6666", lwd=2, add=TRUE)
+qqnorm(correlacion_boot, col = "#4ddbff")
+qqline(correlacion_boot, col = "red")
+```
+
+## Valor-p sin asumir normalidad
+El Valor-p es la probabilidad de ver el valor de interés dentro de una distribución específica. También se puede entender como la probabilidad de no poder rechazar la hipótesis nula. En este caso el valor de interes es todos aquellos valores diferentes de "0" $(H_{0}: r \ne 0)$ y nuestra distribución es la que se originó de nuestras 1,000 simulaciones. Una forma de obtenerlo desde nuestras simulación es Probabilidad de ver algo diferente de 0 en nuestros datos, lo que da un $p = 1$ (desde el histograma vemos que todos los valores son mayores a 0) por lo que $p > \alpha$ para todo nivel de significancia y concluímos que **no podemos rechazar $H_{0}$**
+```{r rango-percentil, echo = FALSE}
+correlacion_boot_sorted <- sort(correlacion_boot)
+simulacion_bootstrap <- as.data.frame(correlacion_boot_sorted, col.names = c("correlacion"))
+simulacion_bootstrap <- simulacion_bootstrap %>% 
+  mutate(percentiles = percent_rank(correlacion_boot_sorted))
+```
+
+## Jacknife 
+Realizamos un histograma con las simulaciones obtenidas. (Figura 6)
+
+```{r jacknife, echo=FALSE, out.width="50%",fig.align='center', fig.cap = "Histograma de las simulaciones de Jacknife"}
+n=6760; # the number of design points
+indata <- as.matrix(select(data, age, attractive_important))
+corr <- function(yz,indata) { cor(indata[yz,1],indata[yz,2]) }
+sampcorr <- cor(indata[1:n,1],indata[1:n,2])
+#sampcorr
+jacklaw <- jackknife(1:n,corr,indata)
+corrjack = sampcorr - jacklaw$jack.bias
+#corrjack
+varjack <- jacklaw$jack.se
+hist(jacklaw$jack.values,freq=FALSE,
+     xlab="r jacknife",
+     ylab = "Frecuencia", col = "#4ddbff",
+     main = NULL)
+```
+Considerando $\alpha = 0.5$ y heredando el assumption de (c) donde asumimos normalidad nuestros intervalos tienen la siguiente forma
+
+$$r_{Jacknife} \pm N_{0.995}(\mu_{j},\sigma_{j})*Var(r_{jacknife})$$
+Sustituyendo.
+$$LI: `r mean(jacklaw$jack.values) - qnorm(0.995, mean(jacklaw$jack.values), sd(jacklaw$jack.values))*sqrt(varjack)`$$
+$$LS: `r mean(jacklaw$jack.values) + qnorm(0.995, mean(jacklaw$jack.values), sd(jacklaw$jack.values))*sqrt(varjack)`$$
+
+# Más pruebas de hipótesis
+
+Se definieron funciones para calcular cada una de las estadísticos por medio de "Bootstrap". 
+
+## Importancia a inteligencia por género (Género Femenino mayor importancia)
+La prueba de hipotesis la podemos expresar de la siguiente manera
+
+$$H_{0}: (\overline{X}_{femenino}\le\overline{X}_{maculino}) = (\overline{X}_{femenino}-\overline{X}_{masculino}\le0)$$
+
+$$H_{1}: (\overline{X}_{femenino}>\overline{X}_{maculino}) = (\overline{X}_{femenino}-\overline{X}_{masculino}>0)$$
+
+donde $\overline{X}$ = la media de la variable "intellicence_important" y la zona de rechazo es $t \ge c$ o bien $p-value \le \alpha$
+
+
+```{r prueba-hipotesis-inteligencia, echo=FALSE, out.width="50%",fig.align='center', fig.cap = "Histograma para la diferencia de medias (Inteligencia: Femenino-Masculino)"}
+diferencias_medias_inteligencia <- c()
+for (i in 1:1000) {
+  indices <- sample(x = 1:6760, size = 6760, replace = TRUE)
+  df_boot <- data[indices, ]
+  diferencias_medias_inteligencia[i] <- diferencias_medias(df_boot)
+}
+media_inteligencia <- mean(diferencias_medias_inteligencia)
+var_inteligencia <- var(diferencias_medias_inteligencia)
+x <- rnorm(10000,media_inteligencia,sd(diferencias_medias_inteligencia))
+hist(diferencias_medias_inteligencia,freq=FALSE,
+     xlab="Diferencia de medias para la importancia de inteligencia en la pareja",
+     ylab = "Frecuencia", col = "#4ddbff",
+     main = NULL)
+```
+
+Desde el histograma (Figura 7) podemos ver que la probabilidad relacionada a ver valores negativos o iguales a cero de la resta de medias es 0 (valor-p) por lo que se rechaza $H_{0}$ para todo nivel de significancia. Los datos muestran que **Rechazas que en promedio el género femenino dé menos importancia a la inteligencia en sus parejas.**
+
+## Importancia al atractivo físico (Género femenino menor importancia)
+La prueba de hipotesis se expresa de la siguiente manera
+
+$$H_{0}: (\overline{X}_{femenino}\ge\overline{X}_{maculino}) = (\overline{X}_{femenino}-\overline{X}_{masculino}\ge0)$$
+
+$$H_{1}: (\overline{X}_{femenino}<\overline{X}_{maculino}) = (\overline{X}_{femenino}-\overline{X}_{masculino}<0)$$
+
+donde $\overline{X}$ = la media de la variable "atracctive_important" y la zona de rechazo es $t \le -c$ o bien $p-value \le \alpha$
+
+
+```{r prueba-hipotesis-atractivo, echo=FALSE, out.width="50%",fig.align='center', fig.cap = "Histograma para diferencia de medias (Atractivo: Femenino-Masculino)"}
+diferencias_medias_apariencia <- c()
+for (i in 1:1000) {
+  indices <- sample(x = 1:6760, size = 6760, replace = TRUE)
+  df_boot <- data[indices, ]
+  diferencias_medias_apariencia[i] <- diferencias_atractivo(df_boot)
+}
+media_atractivo <- mean(diferencias_medias_apariencia)
+var_atractivo <- var(diferencias_medias_apariencia)
+x <- rnorm(10000,media_atractivo,sd(diferencias_medias_apariencia))
+hist(diferencias_medias_apariencia,freq=FALSE,
+     xlab="Diferencia de medias para la importancia de atractivo físico en la pareja",
+     ylab = "Frecuencia", col = "#4ddbff",
+     main = NULL)
+```
+
+Desde el histograma (Figura 8) podemos ver que la probabilidad relacionada a ver valores positivos o iguales a cero de la resta de medias es 0 (valor-p) por lo que podemos rechazar $H_{0}$ para todo nivel de significancia. Los datos muestran que **Rechazamos que en promedio el género femenino dé más importancia al atractivo físico en sus parejas.**
+
+## Correlación entre edad-apariencia por género
+
+La prueba de hipotesis la podemos entender de la siguiente manera
+
+$$H_{0}: (|r|_{femenino}\ge|r|_{maculino}) = (|r|_{femenino}-|r|_{masculino}\ge0)$$
+
+$$H_{0}: (|r|_{femenino}<|r|_{maculino}) = (|r|_{femenino}-|r|_{masculino}<0)$$
+
+donde $|r|$ = la correlación en valor absoluto entre edad e importancia de apariencia física y la zona de rechazo es $t \le -c$ o bien $p-value \le \alpha$
+
+```{r prueba-hipotesis-correlaciones, echo=FALSE, out.width="50%", fig.align='center', fig.cap = "Histograma para diferencia entre correlaciones (Femenino-Masculino)"}
+diferencias_correlaciones <- c()
+for (i in 1:1000) {
+  indices <- sample(x = 1:6760, size = 6760, replace = TRUE)
+  df_boot <- data[indices, ]
+  diferencias_correlaciones[i] <- correlaciones(df_boot)
+}
+media_correlacion <- mean(diferencias_correlaciones)
+var_correlacion <- var(diferencias_correlaciones)
+x <- rnorm(10000,media_correlacion,sd(diferencias_correlaciones))
+hist(diferencias_correlaciones,freq=FALSE,
+     xlab="Diferencia de correlaciones entre edad y atractivo físico",
+     ylab = "Frecuencia", col = "#4ddbff",
+     main = NULL)
+```
+
+Se obsrvan valores positivos, por lo que se calcula la probabilidad de ver valores positivos dentro de esta distribución. **`r sum(diferencias_correlaciones>0)/length(diferencias_correlaciones)` (valor-p)** por lo que podemos rechazar $H_{0}$ con un nivel de significancia $\alpha \ge `r sum(diferencias_correlaciones>0)/length(diferencias_correlaciones)`$. En general **Rechazamos que la correlación (edad-atractivo) en valor absoluto sea mayor que la correspondiente al género masculino.** Lo que quiere decir que se rechaza que exista una mayor relación entre edad e importancia en atractivo físico.
+
